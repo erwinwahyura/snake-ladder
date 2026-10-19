@@ -24,6 +24,7 @@ func fastTiming() Timing {
 		Step:          time.Millisecond,
 		Jump:          time.Millisecond,
 		Settle:        time.Millisecond,
+		BotThink:      2 * time.Millisecond,
 		IdleRoomTTL:   time.Hour,
 		IdleCheck:     time.Hour,
 	}
@@ -231,10 +232,10 @@ func TestAbsentPlayerAutoRollsAndGameIsRecorded(t *testing.T) {
 	if end["winner"].(float64) != 0 || end["ranked"] != true {
 		t.Fatalf("end state %v", end)
 	}
-	if rec, ok := store.Get("player-aaa"); !ok || rec.Wins != 1 || rec.Games != 1 {
+	if rec, ok := store.Get("player-aaa"); !ok || rec.Wins != 1 || rec.Games != 1 || rec.Points != 10 {
 		t.Fatalf("leaderboard A = %+v %v", rec, ok)
 	}
-	if rec, _ := store.Get("player-bbb"); rec.Games != 1 || rec.Wins != 0 {
+	if rec, _ := store.Get("player-bbb"); rec.Games != 1 || rec.Wins != 0 || rec.Points != 3 {
 		t.Fatalf("leaderboard B = %+v", rec)
 	}
 }
@@ -337,4 +338,173 @@ func TestHostRemovesAwayPlayer(t *testing.T) {
 	})
 	a.sendMsg(map[string]any{"t": "kick", "seat": 1})
 	a.waitFor("state", func(m map[string]any) bool { return len(m["players"].([]any)) == 1 })
+}
+
+func players(m map[string]any) []map[string]any {
+	var out []map[string]any
+	for _, p := range m["players"].([]any) {
+		out = append(out, p.(map[string]any))
+	}
+	return out
+}
+
+func TestTableSizeAndVisibility(t *testing.T) {
+	srv, h := newTestServer(t, &scriptedDice{}, nil)
+	a := dial(t, srv, url.Values{"name": {"Budi"}})
+	code := a.waitFor("welcome", nil)["room"].(string)
+	if l := h.Public(10); len(l) != 0 {
+		t.Fatalf("new rooms are private: %+v", l)
+	}
+
+	a.sendMsg(map[string]any{"t": "config", "size": 2, "public": true})
+	a.waitFor("state", func(m map[string]any) bool { return m["size"].(float64) == 2 && m["public"] == true })
+	l := h.Public(10)
+	if len(l) != 1 || l[0].Code != code || l[0].Host != "Budi" || l[0].Size != 2 || l[0].Humans != 1 {
+		t.Fatalf("listing = %+v", l)
+	}
+
+	// Two seats sit opposite each other: the guest gets seat 2.
+	b := dial(t, srv, url.Values{"room": {code}, "name": {"Sari"}})
+	if w := b.waitFor("welcome", nil); w["seat"].(float64) != 2 {
+		t.Fatalf("2-seat table should seat the guest opposite, got %v", w["seat"])
+	}
+	a.waitFor("state", func(m map[string]any) bool { return len(players(m)) == 2 })
+	if l := h.Public(10); len(l) != 0 {
+		t.Fatalf("a full table must leave the list: %+v", l)
+	}
+	c := dial(t, srv, url.Values{"room": {code}, "name": {"C"}})
+	if w := c.waitFor("welcome", nil); w["seat"].(float64) != -1 {
+		t.Fatal("third person at a 2-seat table should spectate")
+	}
+
+	// Growing to 4 is fine; shrinking below a connected person is refused.
+	a.sendMsg(map[string]any{"t": "config", "size": 4})
+	a.waitFor("state", func(m map[string]any) bool { return m["size"].(float64) == 4 })
+	a.sendMsg(map[string]any{"t": "config", "size": 3}) // seat 3 empty: ok
+	a.waitFor("state", func(m map[string]any) bool { return m["size"].(float64) == 3 })
+	a.sendMsg(map[string]any{"t": "config", "size": 7})
+	if e := a.waitFor("error", nil); e["code"] != "bad_size" {
+		t.Fatalf("bad size: %v", e)
+	}
+	b.sendMsg(map[string]any{"t": "config", "size": 2})
+	if e := b.waitFor("error", nil); e["code"] != "not_host" {
+		t.Fatalf("guest config: %v", e)
+	}
+}
+
+func TestBotsPlayAndPeopleReplaceThem(t *testing.T) {
+	dice := &scriptedDice{rolls: []int{2, 3, 4, 5, 1, 2, 3}}
+	store, _ := stats.Open("")
+	srv, h := newTestServer(t, dice, store)
+	a := dial(t, srv, url.Values{"name": {"Budi"}, "pid": {"player-budi"}})
+	code := a.waitFor("welcome", nil)["room"].(string)
+
+	a.sendMsg(map[string]any{"t": "config", "public": true})
+	a.sendMsg(map[string]any{"t": "bot", "action": "fill"})
+	st := a.waitFor("state", func(m map[string]any) bool { return len(players(m)) == 4 })
+	bots := 0
+	for _, p := range players(st) {
+		if p["bot"] == true {
+			bots++
+			if !strings.HasPrefix(p["name"].(string), "Bot ") || p["connected"] != true {
+				t.Fatalf("bot view = %v", p)
+			}
+		}
+	}
+	if bots != 3 {
+		t.Fatalf("want 3 bots, got %d", bots)
+	}
+	if l := h.Public(10); len(l) != 1 || l[0].Bots != 3 {
+		t.Fatalf("a table with bots stays joinable: %+v", h.Public(10))
+	}
+	a.sendMsg(map[string]any{"t": "bot", "action": "add"})
+	if e := a.waitFor("error", nil); e["code"] != "no_free_seat" {
+		t.Fatalf("add to full table: %v", e)
+	}
+
+	// A person joining takes a bot's seat.
+	b := dial(t, srv, url.Values{"room": {code}, "name": {"Sari"}, "pid": {"player-sari"}})
+	if w := b.waitFor("welcome", nil); w["seat"].(float64) < 1 {
+		t.Fatalf("joiner should replace a bot, got seat %v", w["seat"])
+	}
+	a.waitFor("state", func(m map[string]any) bool {
+		n := 0
+		for _, p := range players(m) {
+			if p["bot"] == true {
+				n++
+			}
+		}
+		return n == 2 && len(players(m)) == 4
+	})
+	b.conn.Close(websocket.StatusNormalClosure, "")
+	a.waitFor("state", func(m map[string]any) bool {
+		for _, p := range players(m) {
+			if p["name"] == "Sari" && p["connected"] == false {
+				return true
+			}
+		}
+		return false
+	})
+
+	// Bots roll on their own; Budi rolls his turns. Sari (gone before the
+	// start) loses her seat, so it's Budi vs 2 bots: recorded as a bot game.
+	a.sendMsg(map[string]any{"t": "start"})
+	a.waitFor("state", phaseIs(PhasePlaying))
+	r := h.Get(code)
+	sawBotMove := false
+	deadline := time.After(3 * time.Second)
+	for !sawBotMove {
+		select {
+		case m := <-a.msgs:
+			if m["t"] == "moved" {
+				mv := m["move"].(map[string]any)
+				if mv["seat"].(float64) != 0 {
+					if m["auto"] == true {
+						t.Fatal("a bot's roll is not a timeout auto-roll")
+					}
+					sawBotMove = true
+				}
+			}
+			if m["t"] == "state" && m["turn"] == float64(0) && m["phase"] == PhasePlaying {
+				a.sendMsg(map[string]any{"t": "roll"})
+			}
+		case <-deadline:
+			t.Fatal("bots never rolled")
+		}
+	}
+
+	// Finish quickly: put Budi one step from 100 and let him roll a 1...
+	done := make(chan struct{})
+	r.post(funcEv(func() {
+		r.game.Pos[0] = 99
+		dice.mu.Lock()
+		dice.rolls = []int{1, 1, 1, 1}
+		dice.mu.Unlock()
+		close(done)
+	}))
+	<-done
+	end := time.After(5 * time.Second)
+	for {
+		select {
+		case m := <-a.msgs:
+			if m["t"] == "state" && m["phase"] == PhasePlaying && m["turn"] == float64(0) {
+				a.sendMsg(map[string]any{"t": "roll"})
+			}
+			if m["t"] == "state" && m["phase"] == PhaseFinished {
+				if m["ranked"] == true {
+					t.Fatal("one person vs bots is not ranked")
+				}
+				rec, ok := store.Get("player-budi")
+				if !ok || rec.BotGames != 1 || rec.Games != 0 {
+					t.Fatalf("bot game record = %+v %v", rec, ok)
+				}
+				if _, ok := store.Get("player-sari"); ok {
+					t.Fatal("Sari left before the start and must not be recorded")
+				}
+				return
+			}
+		case <-end:
+			t.Fatal("game did not finish")
+		}
+	}
 }

@@ -15,7 +15,11 @@ func TestRecordAndRank(t *testing.T) {
 		t.Helper()
 		var rs []Result
 		for id, n := range rolls {
-			rs = append(rs, Result{PlayerID: id, Name: "name-" + id[:4], Won: id == winner, Rolls: n})
+			pts := 3
+			if id == winner {
+				pts = 10
+			}
+			rs = append(rs, Result{PlayerID: id, Name: "name-" + id[:4], Won: id == winner, Rolls: n, Points: pts})
 		}
 		if err := s.Record(rs); err != nil {
 			t.Fatal(err)
@@ -32,7 +36,7 @@ func TestRecordAndRank(t *testing.T) {
 	if len(top) != 3 {
 		t.Fatalf("want 3 players, got %d", len(top))
 	}
-	if top[0].Name != "name-aaaa" || top[0].Wins != 2 || top[0].BestRolls != 22 || top[0].Games != 3 {
+	if top[0].Name != "name-aaaa" || top[0].Wins != 2 || top[0].BestRolls != 22 || top[0].Games != 3 || top[0].Points != 23 {
 		t.Fatalf("leader = %+v", top[0])
 	}
 	if top[1].Name != "name-bbbb" || top[2].Wins != 0 || top[2].BestRolls != 0 {
@@ -53,5 +57,18 @@ func TestRecordAndRank(t *testing.T) {
 	}
 	if r, ok := s2.Get("aaaaaaaa"); !ok || r.Wins != 2 {
 		t.Fatalf("reloaded = %+v %v", r, ok)
+	}
+}
+
+func TestBotGamesKeptApart(t *testing.T) {
+	s, _ := Open("")
+	_ = s.Record([]Result{{PlayerID: "solo-player", Name: "Solo", Won: true, Rolls: 15, VsBots: true}})
+	_ = s.Record([]Result{{PlayerID: "solo-player", Name: "Solo", Won: false, Rolls: 40, VsBots: true}})
+	if top := s.Top(10); len(top) != 0 {
+		t.Fatalf("bot-only player must not be ranked: %+v", top)
+	}
+	me, ok := s.Rank("solo-player")
+	if !ok || me.Rank != 0 || me.BotGames != 2 || me.BotWins != 1 || me.Wins != 0 || me.BestRolls != 0 {
+		t.Fatalf("bot record = %+v %v", me, ok)
 	}
 }

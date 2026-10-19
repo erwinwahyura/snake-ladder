@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/erwinwahyura/snake-ladder/internal/stats"
 )
 
-// Seats is the number of places at the table.
+// Seats is the most places a table can have; the host picks 2, 3 or 4.
 const Seats = 4
 
 // Room is one table. All of its state is owned by the run goroutine;
@@ -27,6 +28,8 @@ type Room struct {
 
 	// owned by run()
 	seats      [Seats]*seat
+	size       int  // seats in use: 2, 3 or 4
+	public     bool // listed under "Meja terbuka"
 	spectators map[*client]struct{}
 	phase      string
 	rules      game.Rules
@@ -35,6 +38,11 @@ type Room struct {
 	deadline   time.Time
 	turnTimer  *time.Timer
 	lastActive time.Time
+	created    time.Time
+
+	// listing is the room's entry in the public list, or nil. It is the
+	// only room state read from other goroutines (by the hub).
+	listing atomic.Pointer[Listing]
 }
 
 type seat struct {
@@ -42,8 +50,12 @@ type seat struct {
 	name   string
 	token  string
 	host   bool
-	client *client // nil while disconnected
+	bot    bool    // played by the server
+	client *client // nil while disconnected (always nil for bots)
 }
+
+// present: a bot, or a human who is connected.
+func (s *seat) present() bool { return s.bot || s.client != nil }
 
 type joinEv struct {
 	c                *client
@@ -72,9 +84,11 @@ func newRoom(code string, h *Hub) *Room {
 		done:       make(chan struct{}),
 		spectators: map[*client]struct{}{},
 		phase:      PhaseLobby,
+		size:       Seats,
 		rules:      game.DefaultRules(),
 		turnTimer:  t,
 		lastActive: time.Now(),
+		created:    time.Now(),
 	}
 }
 
@@ -114,6 +128,7 @@ func (r *Room) run() {
 		for c := range r.spectators {
 			r.detach(c)
 		}
+		r.listing.Store(nil)
 		r.hub.remove(r.code)
 		close(r.done)
 	}()
@@ -229,6 +244,10 @@ func (r *Room) onMessage(c *client, m inMsg) {
 		r.onReact(c, m.Emoji)
 	case msgKick:
 		r.onKick(c, m.Seat)
+	case msgConfig:
+		r.onConfig(c, m.Size, m.Public)
+	case msgBot:
+		r.onBot(c, m.Action, m.Seat)
 	default:
 		r.sendErr(c, "bad_message")
 	}
@@ -248,7 +267,7 @@ func (r *Room) onStart(c *client) {
 	for i, s := range r.seats {
 		switch {
 		case s == nil:
-		case s.client == nil:
+		case !s.present():
 			r.seats[i] = nil
 		default:
 			order = append(order, i)
@@ -284,7 +303,7 @@ func (r *Room) onKick(c *client, target *int) {
 		r.sendErr(c, "not_host")
 	case r.phase == PhasePlaying:
 		r.sendErr(c, "already_playing")
-	case target == nil || *target < 0 || *target >= Seats || r.seats[*target] == nil:
+	case target == nil || *target < 0 || *target >= Seats || r.seats[*target] == nil || r.seats[*target].bot:
 		r.sendErr(c, "bad_seat")
 	case r.seats[*target].client != nil:
 		r.sendErr(c, "still_connected")
@@ -353,7 +372,8 @@ func (r *Room) onTurnTimeout() {
 		r.turnTimer.Reset(wait)
 		return
 	}
-	r.roll(true)
+	s := r.seats[r.game.Current()]
+	r.roll(s == nil || !s.bot) // a bot's roll is its own move, not a timeout
 }
 
 // --- game flow ---
@@ -378,40 +398,64 @@ func (r *Room) roll(auto bool) {
 	r.broadcastState()
 }
 
-// ranked: only games with at least two players count, so nobody farms
-// wins by playing alone.
-func (r *Room) ranked() bool { return r.game != nil && len(r.game.Seats) >= 2 }
-
-func (r *Room) results() []resultView {
-	out := make([]resultView, 0, len(r.game.Seats))
+// humansInGame and botsInGame count the game's participants by kind.
+func (r *Room) humansInGame() (humans, bots int) {
+	if r.game == nil {
+		return 0, 0
+	}
 	for _, i := range r.game.Seats {
-		st := r.game.Stats[i]
-		rv := resultView{Seat: i, Pos: r.game.Pos[i], Rolls: st.Rolls, Ladders: st.Ladders, Snakes: st.Snakes, Won: r.game.Winner == i}
+		if s := r.seats[i]; s != nil && s.bot {
+			bots++
+		} else {
+			humans++
+		}
+	}
+	return humans, bots
+}
+
+// ranked: only games with at least two people count, so nobody farms wins
+// alone or against bots. Wins against bots are kept separately.
+func (r *Room) ranked() bool {
+	humans, _ := r.humansInGame()
+	return humans >= 2
+}
+
+// results lists every seat in finishing order. Points are shown only for
+// ranked games, since only those reach the leaderboard.
+func (r *Room) results() []resultView {
+	ranked := r.ranked()
+	out := make([]resultView, 0, len(r.game.Seats))
+	for _, p := range r.game.Placements() {
+		i, st := p.Seat, r.game.Stats[p.Seat]
+		rv := resultView{Seat: i, Place: p.Place, Pos: r.game.Pos[i], Rolls: st.Rolls, Ladders: st.Ladders, Snakes: st.Snakes, Won: r.game.Winner == i}
 		if s := r.seats[i]; s != nil {
-			rv.Name = s.name
+			rv.Name, rv.Bot = s.name, s.bot
+		}
+		if ranked && !rv.Bot {
+			rv.Points = p.Points
 		}
 		out = append(out, rv)
 	}
-	sort.Slice(out, func(a, b int) bool {
-		if out[a].Won != out[b].Won {
-			return out[a].Won
-		}
-		return out[a].Pos > out[b].Pos
-	})
 	return out
 }
 
 func (r *Room) record() {
-	if r.cfg.Recorder == nil || !r.ranked() {
+	if r.cfg.Recorder == nil {
 		return
 	}
+	humans, bots := r.humansInGame()
+	vsBots := humans == 1 && bots > 0
+	if humans < 2 && !vsBots {
+		return // a solo practice game: nothing to record
+	}
 	var rs []stats.Result
-	for _, i := range r.game.Seats {
+	for _, p := range r.game.Placements() {
+		i := p.Seat
 		s, st := r.seats[i], r.game.Stats[i]
-		if s == nil {
+		if s == nil || s.bot {
 			continue
 		}
-		rs = append(rs, stats.Result{PlayerID: s.pid, Name: s.name, Won: r.game.Winner == i, Rolls: st.Rolls, Ladders: st.Ladders, Snakes: st.Snakes})
+		rs = append(rs, stats.Result{PlayerID: s.pid, Name: s.name, Won: r.game.Winner == i, Rolls: st.Rolls, Ladders: st.Ladders, Snakes: st.Snakes, Points: p.Points, VsBots: vsBots})
 	}
 	if err := r.cfg.Recorder.Record(rs); err != nil {
 		slog.Error("record leaderboard", "room", r.code, "err", err)
@@ -441,7 +485,10 @@ func (r *Room) scheduleTurn() {
 		return
 	}
 	wait := r.cfg.Timing.TurnTimeout
-	if s := r.seats[cur]; s == nil || s.client == nil {
+	switch s := r.seats[cur]; {
+	case s != nil && s.bot:
+		wait = r.botThink()
+	case s == nil || s.client == nil:
 		wait = r.cfg.Timing.AbsentTimeout
 	}
 	start := r.busyUntil
@@ -462,20 +509,29 @@ func (r *Room) rescheduleTurn() {
 
 // --- helpers ---
 
+// freeSeat finds a seat for a person joining outside a game: an empty
+// seat first, then one whose player left the lobby, then a bot's seat (a
+// person always beats a bot).
 func (r *Room) freeSeat() int {
-	for i, s := range r.seats {
-		if s == nil {
+	open := r.openSeats()
+	for _, i := range open {
+		if r.seats[i] == nil {
 			return i
 		}
 	}
-	// Reclaim a seat whose player left the lobby without reconnecting.
-	for i, s := range r.seats {
-		if s.client == nil {
+	for _, i := range open {
+		if s := r.seats[i]; !s.bot && s.client == nil {
 			wasHost := s.host
 			r.seats[i] = nil
 			if wasHost {
 				r.passHost(i)
 			}
+			return i
+		}
+	}
+	for _, i := range open {
+		if r.seats[i].bot {
+			r.seats[i] = nil
 			return i
 		}
 	}
@@ -496,7 +552,7 @@ func (r *Room) host() int {
 func (r *Room) passHost(from int) {
 	for k := 1; k <= Seats; k++ {
 		i := (from + k) % Seats
-		if s := r.seats[i]; s != nil && s.client != nil {
+		if s := r.seats[i]; s != nil && !s.bot && s.client != nil {
 			if f := r.seats[from]; f != nil {
 				f.host = false
 			}
@@ -531,6 +587,8 @@ func (r *Room) state() stateMsg {
 		T:          "state",
 		Room:       r.code,
 		Phase:      r.phase,
+		Size:       r.size,
+		Public:     r.public,
 		Rules:      r.rules,
 		Players:    []playerView{},
 		Turn:       -1,
@@ -542,7 +600,7 @@ func (r *Room) state() stateMsg {
 		if s == nil {
 			continue
 		}
-		p := playerView{Seat: i, Name: s.name, Connected: s.client != nil, Host: s.host}
+		p := playerView{Seat: i, Name: s.name, Connected: s.present(), Host: s.host, Bot: s.bot}
 		if r.game != nil {
 			if pos, ok := r.game.Pos[i]; ok && r.phase != PhaseLobby {
 				p.Pos, p.Playing = pos, true
@@ -585,7 +643,10 @@ func (r *Room) welcome(c *client, token string) {
 	})
 }
 
-func (r *Room) broadcastState() { r.broadcast(r.state()) }
+func (r *Room) broadcastState() {
+	r.publishListing() // first, so the public list is never behind what players see
+	r.broadcast(r.state())
+}
 
 func (r *Room) broadcast(v any) {
 	b, err := json.Marshal(v)

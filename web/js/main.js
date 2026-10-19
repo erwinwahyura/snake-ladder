@@ -12,14 +12,35 @@ const store = {
   del(k) { try { localStorage.removeItem(k); } catch { /* private mode */ } },
 };
 
-// A stable, random ID per browser so the leaderboard survives renames.
+// Guest identity: a server-signed ID kept in this browser, so the
+// leaderboard survives renames without any sign-up. ?akun=<id> brings an
+// identity over from another device (see "Pindah ke HP lain").
 function playerId() {
-  let id = store.get('ut.pid');
-  if (!id) {
-    id = crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36);
-    store.set('ut.pid', id);
+  return store.get('ut.pid') || '';
+}
+
+async function ensureIdentity() {
+  const params = new URLSearchParams(location.search);
+  const moved = params.get('akun');
+  if (moved) {
+    store.set('ut.pid', moved);
+    params.delete('akun');
+    history.replaceState(null, '', location.pathname + (params.toString() ? `?${params}` : ''));
   }
-  return id;
+  try {
+    const res = await fetch(`/api/identity?pid=${encodeURIComponent(playerId())}`);
+    const { pid } = await res.json();
+    if (moved && pid !== moved) showLobbyError('Tautan akun itu tidak valid, jadi kamu memakai catatan baru.');
+    else if (moved) showLobbyError('Catatanmu sudah dipindahkan ke perangkat ini.');
+    store.set('ut.pid', pid);
+  } catch {
+    /* offline: keep whatever we have; games just won't be recorded */
+  }
+}
+
+// Seats in use for a table size; two players sit opposite each other.
+function openSeatsFor(size) {
+  return size === 2 ? [0, 2] : [0, 1, 2, 3].slice(0, size);
 }
 
 const CLASSIC_BOARD = {
@@ -37,6 +58,7 @@ const app = {
   animating: false,
   joinedOnce: false,
   lastPhase: null,
+  intent: null, // 'bots' when "Main lawan bot" is setting up its table
 };
 
 await document.fonts.load('800 64px "Baloo 2"').catch(() => {});
@@ -79,6 +101,13 @@ $('create').addEventListener('click', () => {
   enterRoom('');
 });
 
+// One tap to a full table: you plus three bots, starting straight away.
+$('vs-bots').addEventListener('click', () => {
+  if (!requireName()) return;
+  app.intent = 'bots';
+  enterRoom('');
+});
+
 $('join-form').addEventListener('submit', (e) => {
   e.preventDefault();
   const code = $('join-code').value.trim().toUpperCase();
@@ -101,10 +130,51 @@ function enterRoom(code) {
   }));
 }
 
+await ensureIdentity();
+
 // Coming back to a room link we already hold a seat in: rejoin straight away.
 if (urlCode && store.get(`ut.token.${urlCode.toUpperCase()}`) && myName()) {
   enterRoom(urlCode.toUpperCase());
 }
+
+// --- open tables ---
+
+const RULES_SHORT = (r) => `${r.overshoot === 'bounce' ? 'mundur di 100' : 'pas 100'}${r.sixAgain ? ', 6 lempar lagi' : ''}`;
+
+async function loadRooms() {
+  if (!$('lobby').hidden) {
+    try {
+      const { rooms } = await (await fetch('/api/rooms')).json();
+      renderRooms(rooms);
+    } catch {
+      renderRooms([]);
+    }
+  }
+}
+
+function renderRooms(rooms) {
+  $('room-empty').hidden = rooms.length > 0;
+  $('room-list').replaceChildren(
+    ...rooms.map((r) => {
+      const li = document.createElement('li');
+      const info = document.createElement('div');
+      info.append(Object.assign(document.createElement('b'), { textContent: `Meja ${r.host}` }));
+      const people = `${r.humans}/${r.size} orang${r.bots ? `, ${r.bots} bot` : ''}`;
+      info.append(Object.assign(document.createElement('span'), { className: 'meta', textContent: `${people}, ${RULES_SHORT(r.rules)}` }));
+      const join = Object.assign(document.createElement('button'), { className: 'btn small', textContent: 'Gabung', type: 'button' });
+      join.setAttribute('aria-label', `Gabung ke meja ${r.host}`);
+      join.addEventListener('click', () => {
+        if (requireName()) enterRoom(r.code);
+      });
+      li.append(info, join);
+      return li;
+    }),
+  );
+}
+
+$('refresh-rooms').addEventListener('click', loadRooms);
+loadRooms();
+setInterval(loadRooms, 5000);
 
 // --- server messages ---
 
@@ -131,6 +201,13 @@ function onWelcome(msg) {
   $('room').hidden = false;
   $('room-code').textContent = msg.room;
   app.joinedOnce = true;
+  if (app.intent === 'bots' && msg.seat >= 0) {
+    // The room handles these in order: size, three bots, go.
+    conn.send({ t: 'config', size: 4, public: false });
+    conn.send({ t: 'bot', action: 'fill' });
+    conn.send({ t: 'start' });
+  }
+  app.intent = null;
 }
 
 function onState(st) {
@@ -231,6 +308,8 @@ function onError(msg) {
     not_your_turn: 'Belum giliranmu.',
     still_moving: 'Tunggu bidaknya berhenti dulu.',
     not_host: 'Hanya tuan rumah yang bisa mengatur dan memulai.',
+    seats_taken: 'Ada pemain di kursi yang mau dihapus. Minta dia keluar dulu, atau pilih jumlah yang lebih besar.',
+    no_free_seat: 'Semua kursi sudah terisi.',
   }[msg.code];
   if (msg.code === 'room_not_found' || msg.code === 'server_full') {
     if (app.room) store.del(`ut.token.${app.room}`);
@@ -239,6 +318,7 @@ function onError(msg) {
     return;
   }
   if (text) setLog(text);
+  if (app.state) renderWaiting(app.state); // undo a refused setup change in the controls
 }
 
 function onStatus(status) {
@@ -263,6 +343,7 @@ function backToLobby() {
   world.setPlayers([]);
   world.setTurn(-1);
   world.setIdle(true);
+  loadRooms();
 }
 
 // --- rendering ---
@@ -291,8 +372,7 @@ function setLog(text) {
 
 function renderPlayers(st) {
   const ol = $('players');
-  ol.replaceChildren(
-    ...st.players.map((p) => {
+  const rows = st.players.map((p) => {
       const li = document.createElement('li');
       li.className = [p.connected ? '' : 'away', st.turn === p.seat ? 'turn' : ''].join(' ').trim();
       const dot = document.createElement('span');
@@ -302,24 +382,39 @@ function renderPlayers(st) {
       who.className = 'who';
       who.textContent = p.name + (p.seat === app.seat ? ' (kamu)' : '');
       if (p.host) who.append(Object.assign(document.createElement('span'), { className: 'tag', textContent: ' tuan rumah' }));
+      if (p.bot) who.append(Object.assign(document.createElement('span'), { className: 'tag', textContent: ' 🤖' }));
       if (!p.connected) who.append(Object.assign(document.createElement('span'), { className: 'tag', textContent: ' terputus' }));
       if (recentReactions.has(p.seat)) who.append(Object.assign(document.createElement('span'), { className: 'bubble', textContent: recentReactions.get(p.seat) }));
       const where = document.createElement('span');
       where.className = 'where';
       where.textContent = p.playing ? (p.pos === 0 ? 'Mulai' : p.pos) : '';
-      // The host can clear a seat whose player has gone, outside a game.
-      if (amHost() && st.phase !== 'playing' && !p.connected && p.seat !== app.seat) {
+      // Outside a game the host can remove bots and people who have left.
+      if (amHost() && st.phase !== 'playing' && p.seat !== app.seat && (p.bot || !p.connected)) {
         const kick = document.createElement('button');
         kick.className = 'btn small';
         kick.textContent = 'Keluarkan';
         kick.setAttribute('aria-label', `Keluarkan ${p.name} dari meja`);
-        kick.addEventListener('click', () => conn.send({ t: 'kick', seat: p.seat }));
+        kick.addEventListener('click', () =>
+          conn.send(p.bot ? { t: 'bot', action: 'remove', seat: p.seat } : { t: 'kick', seat: p.seat }));
         where.replaceChildren(kick);
       }
       li.append(dot, who, where);
       return li;
-    }),
-  );
+    });
+  // Empty seats before a game, so everyone sees how many are still open.
+  if (st.phase !== 'playing') {
+    const taken = new Set(st.players.map((p) => p.seat));
+    for (const seat of openSeatsFor(st.size)) {
+      if (taken.has(seat)) continue;
+      const li = document.createElement('li');
+      li.className = 'empty';
+      const dot = Object.assign(document.createElement('span'), { className: 'pawn-dot' });
+      dot.style.background = SEAT_COLORS[seat];
+      li.append(dot, Object.assign(document.createElement('span'), { className: 'who', textContent: 'Kursi kosong' }), document.createElement('span'));
+      rows.push(li);
+    }
+  }
+  ol.replaceChildren(...rows);
   const sp = $('spectators');
   sp.hidden = !st.spectators;
   sp.textContent = `${st.spectators} penonton`;
@@ -360,15 +455,21 @@ function renderWaiting(st) {
   $('waiting').hidden = !show;
   if (!show) return;
   const host = amHost();
-  const n = st.players.filter((p) => p.connected).length;
-  $('waiting-hint').textContent =
-    app.seat < 0
-      ? 'Kamu menonton. Kursi sudah penuh.'
-      : n < 2
-        ? `Kirim kode ${st.room} ke teman. Bisa juga main sendiri untuk latihan (tidak masuk papan juara).`
-        : host
-          ? `${n} pemain siap. Mulai kapan saja.`
-          : 'Menunggu tuan rumah memulai.';
+  const people = st.players.filter((p) => !p.bot && p.connected).length;
+  const bots = st.players.filter((p) => p.bot).length;
+  const empty = openSeatsFor(st.size).length - st.players.length;
+  let hint;
+  if (app.seat < 0) hint = 'Kamu menonton. Kursi sudah penuh.';
+  else if (!host) hint = 'Menunggu tuan rumah memulai.';
+  else if (people < 2 && bots === 0) hint = `Kirim kode ${st.room} ke teman${st.public ? ', atau tunggu orang dari Meja terbuka' : ''}. Bisa juga tambah bot.`;
+  else if (empty > 0) hint = `${empty} kursi masih kosong. Mulai sekarang atau tunggu yang lain.`;
+  else hint = 'Meja penuh. Mulai kapan saja.';
+  if (host && people === 1 && bots > 0) hint += ' Lawan bot dicatat terpisah, tanpa poin.';
+  $('waiting-hint').textContent = hint;
+  $('setup').disabled = !host;
+  for (const r of document.querySelectorAll('input[name=size]')) r.checked = Number(r.value) === st.size;
+  for (const r of document.querySelectorAll('input[name=visibility]')) r.checked = (r.value === 'public') === st.public;
+  $('add-bot').disabled = $('fill-bots').disabled = empty <= 0;
   $('rules').disabled = !host;
   for (const r of document.querySelectorAll('input[name=overshoot]')) r.checked = r.value === st.rules.overshoot;
   $('six-again').checked = st.rules.sixAgain;
@@ -414,16 +515,23 @@ function showResults(st) {
     ...(st.results || []).map((r) => {
       const tr = document.createElement('tr');
       if (r.won) tr.className = 'winner';
-      [r.name, r.pos, r.rolls, r.ladders, r.snakes].forEach((v, i) => {
+      if (r.seat === app.seat) tr.classList.add('me');
+      const name = r.bot ? `${r.name} 🤖` : r.name;
+      [r.place, name, r.pos, r.ladders, r.snakes, st.ranked && !r.bot ? `+${r.points}` : '-'].forEach((v, i) => {
         const td = document.createElement('td');
         td.textContent = v;
-        if (i > 0) td.className = 'num';
+        if (i !== 1) td.className = 'num';
         tr.append(td);
       });
       return tr;
     }),
   );
-  $('results-note').textContent = st.ranked ? 'Hasil ini masuk papan juara.' : 'Main sendiri tidak masuk papan juara.';
+  const humans = (st.results || []).filter((r) => !r.bot).length;
+  $('results-note').textContent = st.ranked
+    ? 'Poin masuk papan juara.'
+    : humans === 1 && st.results.length > 1
+      ? 'Lawan bot dicatat terpisah, tanpa poin.'
+      : 'Main sendiri tidak dicatat.';
   $('rematch').hidden = !amHost();
   $('results').showModal();
 }
@@ -492,12 +600,15 @@ async function openLeaderboard() {
   try {
     const res = await fetch(`/api/leaderboard?pid=${encodeURIComponent(playerId())}`);
     const { players, me } = await res.json();
+    const bot = $('my-bot-record');
+    bot.hidden = !(me && me.botGames);
+    if (me && me.botGames) bot.textContent = `Lawan bot: kamu menang ${me.botWins} dari ${me.botGames} permainan.`;
     if (!players.length) {
       body.replaceChildren(row(['', 'Belum ada juara. Main dengan teman untuk jadi yang pertama.', '', '', '']));
       return;
     }
     const line = (p) => {
-      const tr = row([p.rank, p.name, p.wins, p.games, p.bestRolls ? `${p.bestRolls} lemparan` : '-']);
+      const tr = row([p.rank, p.name, p.points, p.wins, p.games]);
       if (me && p.rank === me.rank) tr.className = 'me';
       return tr;
     };
@@ -524,6 +635,25 @@ function row(cells) {
   });
   return tr;
 }
+
+$('copy-account').addEventListener('click', async () => {
+  try {
+    await navigator.clipboard.writeText(`${location.origin}/?akun=${encodeURIComponent(playerId())}`);
+    $('copy-account').textContent = 'Tersalin';
+    setTimeout(() => ($('copy-account').textContent = 'Salin tautan akunku'), 1500);
+  } catch {
+    /* clipboard blocked */
+  }
+});
+
+// --- table setup (host) ---
+
+$('setup').addEventListener('change', (e) => {
+  if (e.target.name === 'size') conn.send({ t: 'config', size: Number(e.target.value) });
+  if (e.target.name === 'visibility') conn.send({ t: 'config', public: e.target.value === 'public' });
+});
+$('add-bot').addEventListener('click', () => conn.send({ t: 'bot', action: 'add' }));
+$('fill-bots').addEventListener('click', () => conn.send({ t: 'bot', action: 'fill' }));
 
 // --- sound ---
 

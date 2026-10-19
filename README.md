@@ -17,7 +17,7 @@ Open two browser windows to play against yourself. A solo game works too, but it
 | Env | Flag | Default | |
 |---|---|---|---|
 | `ADDR` | `-addr` | `:8080` | listen address |
-| `DATA_DIR` | `-data` | `./data` | where `leaderboard.json` lives |
+| `DATA_DIR` | `-data` | `./data` | `leaderboard.json` and `identity.key` (back up both) |
 | `ORIGINS` | `-origins` | | extra allowed WebSocket origins, comma-separated |
 
 ## Deploy (Hetzner + Caddy + Ansible)
@@ -28,10 +28,16 @@ Open two browser windows to play against yourself. A solo game works too, but it
 
 ## How it plays
 
-- The first person at the table is the host. The host picks house rules (what happens past 100, and whether a 6 rolls again) and starts the game.
+- **"Main lawan bot"** starts a game against three bots straight away.
+- **"Buat meja"** makes a table where you are the host. The host chooses:
+  - 2, 3 or 4 players
+  - private (code or link only) or public (listed under **Meja terbuka**)
+  - bots for empty seats
+  - house rules: what happens past 100, and whether a 6 rolls again
 - The server rolls the dice. You have 20 seconds to roll before it rolls for you.
 - If your phone sleeps, reopen the link to get your seat back. While you're away, your turns are rolled for you.
-- Games with two or more players count for the leaderboard.
+- Points: the winner gets 10, then 6 / 3 / 1 at a 4-player table. Only games with two or more people count. Wins against bots are kept separately.
+- There's no sign-up. Your record lives in this browser. "Pindah ke HP lain" in the leaderboard moves it to another device.
 - Tap an emoji to react. Use "Bisukan" to mute the sound.
 - On a phone, "Add to Home screen" installs it like an app.
 
