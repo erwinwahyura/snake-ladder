@@ -96,6 +96,7 @@ h2 { font-size: 1.5rem; }
 }
 .lobby { max-height: calc(100dvh - 2 * var(--gutter)); overflow-y: auto; }
 .lobby-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.lobby-actions .quick { grid-column: 1 / -1; font-size: 1.2rem; }
 .open-tables { border-top: 2px dashed #b9ad90; padding-top: 10px; display: grid; gap: 6px; }
 .open-head { display: flex; justify-content: space-between; align-items: baseline; }
 .open-head h2 { font-size: 1.15rem; }

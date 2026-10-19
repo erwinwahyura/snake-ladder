@@ -23,6 +23,7 @@ type Timing struct {
 	Jump          time.Duration // snake slide or ladder climb
 	Settle        time.Duration // pause after a move before the next turn
 	BotThink      time.Duration // a bot waits this long (plus up to half again) before rolling
+	MatchWait     time.Duration // Cari lawan: wait this long for people, then fill with bots
 	IdleRoomTTL   time.Duration // empty rooms are removed after this
 	IdleCheck     time.Duration // how often to look for idle rooms
 }
@@ -37,6 +38,7 @@ func DefaultTiming() Timing {
 		Jump:          1000 * time.Millisecond,
 		Settle:        400 * time.Millisecond,
 		BotThink:      900 * time.Millisecond,
+		MatchWait:     30 * time.Second,
 		IdleRoomTTL:   10 * time.Minute,
 		IdleCheck:     time.Minute,
 	}
@@ -105,6 +107,34 @@ func (h *Hub) Create() (*Room, error) {
 	r := newRoom(code, h)
 	h.rooms[code] = r
 	go r.run()
+	return r, nil
+}
+
+// QuickMatch finds the Cari lawan table that will start soonest (most
+// people waiting) or opens a new one. The caller then joins it; if the
+// last seat went in the meantime the room answers match_full.
+func (h *Hub) QuickMatch() (*Room, error) {
+	h.mu.Lock()
+	var best *Room
+	bestHumans := -1
+	for _, r := range h.rooms {
+		if l := r.listing.Load(); l != nil && l.Match && l.Humans > bestHumans {
+			best, bestHumans = r, l.Humans
+		}
+	}
+	h.mu.Unlock()
+	if best != nil {
+		return best, nil
+	}
+	r, err := h.Create()
+	if err != nil {
+		return nil, err
+	}
+	done := make(chan struct{})
+	if !r.post(funcEv(func() { r.openMatch(); close(done) })) {
+		return nil, ErrTooManyRooms
+	}
+	<-done
 	return r, nil
 }
 

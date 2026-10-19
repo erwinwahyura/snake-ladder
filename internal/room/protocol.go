@@ -100,8 +100,10 @@ type stateMsg struct {
 	T          string       `json:"t"`
 	Room       string       `json:"room"`
 	Phase      string       `json:"phase"`
-	Size       int          `json:"size"`   // seats in use: 2, 3 or 4
-	Public     bool         `json:"public"` // listed under "Meja terbuka"
+	Size       int          `json:"size"`              // seats in use: 2, 3 or 4
+	Public     bool         `json:"public"`            // listed under "Meja terbuka"
+	Match      bool         `json:"match"`             // Cari lawan: starts by itself, no host
+	MatchAt    int64        `json:"matchAt,omitempty"` // unix ms when a Cari lawan table starts anyway
 	Rules      game.Rules   `json:"rules"`
 	Players    []playerView `json:"players"`
 	Turn       int          `json:"turn"`     // seat, -1 if none

@@ -25,6 +25,7 @@ func fastTiming() Timing {
 		Jump:          time.Millisecond,
 		Settle:        time.Millisecond,
 		BotThink:      2 * time.Millisecond,
+		MatchWait:     time.Hour, // tests that need the clock set their own
 		IdleRoomTTL:   time.Hour,
 		IdleCheck:     time.Hour,
 	}
@@ -620,5 +621,94 @@ func TestRudeNamesReplaced(t *testing.T) {
 	st := a.waitFor("state", nil)
 	if n := players(st)[0]["name"]; n != "Pemain 1" {
 		t.Fatalf("rude name shown as %q", n)
+	}
+}
+
+func newMatchServer(t *testing.T, wait time.Duration) (*httptest.Server, *Hub) {
+	t.Helper()
+	tm := fastTiming()
+	tm.MatchWait = wait
+	h := NewHub(Config{Timing: tm, Dice: (&scriptedDice{}).next})
+	srv := httptest.NewServer(h.Handler(nil))
+	t.Cleanup(func() { h.Close(); srv.Close() })
+	return srv, h
+}
+
+func TestQuickMatchGroupsPeopleAndStartsWhenFull(t *testing.T) {
+	srv, h := newMatchServer(t, time.Hour)
+	var code string
+	var cs []*testClient
+	for i, name := range []string{"A", "B", "C", "D"} {
+		c := dial(t, srv, url.Values{"match": {"1"}, "name": {name}})
+		w := c.waitFor("welcome", nil)
+		if i == 0 {
+			code = w["room"].(string)
+			st := c.waitFor("state", nil)
+			if st["match"] != true || st["size"].(float64) != 4 || st["matchAt"] == nil {
+				t.Fatalf("match table state = %v", st)
+			}
+			for _, p := range players(st) {
+				if p["host"] == true {
+					t.Fatal("a Cari lawan table has no host")
+				}
+			}
+		} else if w["room"] != code {
+			t.Fatalf("%s went to %v, want %s", name, w["room"], code)
+		}
+		cs = append(cs, c)
+		// Wait until the table shows them, so the next search finds it listed.
+		if i > 0 {
+			cs[0].waitFor("state", func(m map[string]any) bool { return len(players(m)) == i+1 })
+		}
+	}
+	// Four people: starts at once, long before the hour-long clock.
+	st := cs[0].waitFor("state", phaseIs(PhasePlaying))
+	for _, p := range players(st) {
+		if p["bot"] == true {
+			t.Fatal("a full table of people needs no bots")
+		}
+	}
+	if len(h.Public(10)) != 0 {
+		t.Fatal("a running match is not listed")
+	}
+	// The next searcher gets a fresh table.
+	e := dial(t, srv, url.Values{"match": {"1"}, "name": {"E"}})
+	if w := e.waitFor("welcome", nil); w["room"] == code {
+		t.Fatal("new searcher must not land in a running game")
+	}
+	// Nobody can reconfigure a hostless table.
+	e.sendMsg(map[string]any{"t": "config", "size": 2})
+	if m := e.waitFor("error", nil); m["code"] != "not_host" {
+		t.Fatalf("config on match table: %v", m)
+	}
+}
+
+func TestQuickMatchFillsWithBotsWhenTimeIsUp(t *testing.T) {
+	srv, _ := newMatchServer(t, 80*time.Millisecond)
+	a := dial(t, srv, url.Values{"match": {"1"}, "name": {"A"}})
+	a.waitFor("welcome", nil)
+	st := a.waitFor("state", phaseIs(PhasePlaying))
+	bots := 0
+	for _, p := range players(st) {
+		if p["bot"] == true {
+			bots++
+		}
+	}
+	if bots != 3 {
+		t.Fatalf("want 3 bots after the wait, got %d (%v)", bots, players(st))
+	}
+}
+
+func TestQuickMatchWithNobodyLeftDoesNotStart(t *testing.T) {
+	srv, h := newMatchServer(t, 60*time.Millisecond)
+	a := dial(t, srv, url.Values{"match": {"1"}, "name": {"A"}})
+	code := a.waitFor("welcome", nil)["room"].(string)
+	a.conn.Close(websocket.StatusNormalClosure, "")
+	time.Sleep(200 * time.Millisecond)
+	r := h.Get(code)
+	got := make(chan string)
+	r.post(funcEv(func() { got <- r.phase }))
+	if p := <-got; p != PhaseLobby {
+		t.Fatalf("empty match table started anyway: %s", p)
 	}
 }
