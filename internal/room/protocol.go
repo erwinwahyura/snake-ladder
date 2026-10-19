@@ -11,6 +11,7 @@ import "github.com/erwinwahyura/snake-ladder/internal/game"
 //	{"t":"leave"}   give up your seat
 //	{"t":"rules","rules":{"overshoot":"stay","sixAgain":true}}   host, before start
 //	{"t":"react","emoji":"😂"}   seated players; one of Reactions, rate-limited
+//	{"t":"kick","seat":2}        host, outside a game, only a disconnected seat
 //
 // Server → client:
 //
@@ -25,6 +26,7 @@ const (
 	msgLeave = "leave"
 	msgRules = "rules"
 	msgReact = "react"
+	msgKick  = "kick"
 )
 
 // Reactions are the only emoji the server relays. A fixed set keeps the
@@ -51,6 +53,7 @@ type inMsg struct {
 	T     string      `json:"t"`
 	Rules *game.Rules `json:"rules,omitempty"`
 	Emoji string      `json:"emoji,omitempty"`
+	Seat  *int        `json:"seat,omitempty"`
 }
 
 type boardView struct {

@@ -9,6 +9,7 @@ One Go binary serves the game server, the web client and the leaderboard. There 
 ```sh
 make run          # http://localhost:8080
 make test         # vet + race tests (includes a game-length simulation)
+python3 scripts/e2e_two_players.py http://127.0.0.1:8080 ./shots 10   # optional browser test
 ```
 
 Open two browser windows to play against yourself. A solo game works too, but it doesn't count for the leaderboard.
@@ -31,6 +32,8 @@ Open two browser windows to play against yourself. A solo game works too, but it
 - The server rolls the dice. You have 20 seconds to roll before it rolls for you.
 - If your phone sleeps, reopen the link to get your seat back. While you're away, your turns are rolled for you.
 - Games with two or more players count for the leaderboard.
+- Tap an emoji to react. Use "Bisukan" to mute the sound.
+- On a phone, "Add to Home screen" installs it like an app.
 
 ## Docs
 

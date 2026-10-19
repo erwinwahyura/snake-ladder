@@ -1,5 +1,17 @@
 # Changelog
 
+## Loop 3 — 2026-10-19
+
+### Added
+- **Installable as an app (PWA).** Adds a web manifest and icons (normal, maskable and Apple touch), so Android and iOS can put Ular Tangga on the home screen and open it full-screen.
+- **Host can remove away players.** In the lobby or after a game, the host sees a "Keluarkan" button next to anyone who has disconnected. Connected players can't be removed.
+
+### Changed
+- **Dice landing spot.** The dice now land just off the board edge near the middle of the roller's side, so they stay on-screen from every seat and on portrait phones.
+
+### Fixed
+- **Changelog accuracy.** The "pause when everyone leaves" fix shipped in loop 1, not loop 2.
+
 ## Loop 2 — 2026-10-19
 
 ### Added
@@ -13,7 +25,6 @@
 ### Fixed
 - **Results table alignment.** Names are left-aligned and numbers right-aligned.
 - **Lobby background.** The board is drawn behind the lobby before you join, instead of an empty frame.
-- **Games no longer auto-play to the end when every seated player has left.** They pause and resume on reconnect. Previously an abandoned game would hand someone a leaderboard win.
 - **Spectators get a steeper overview camera,** so the seat-0 avatar no longer blocks the view.
 
 ## Loop 1 — 2026-10-19
@@ -25,7 +36,7 @@
   - 4 seats with host and spectators
   - Reconnect tokens
   - 20 s turn timer with auto-roll (2 s for disconnected players)
-  - A pause when no seated player is connected
+  - A pause when no seated player is connected, so an abandoned game can't hand anyone a leaderboard win
   - Server-timed animation windows
   - Rematch
   - Idle-room cleanup

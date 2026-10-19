@@ -309,3 +309,32 @@ func TestReactions(t *testing.T) {
 		}
 	}
 }
+
+func TestHostRemovesAwayPlayer(t *testing.T) {
+	srv, _ := newTestServer(t, &scriptedDice{}, nil)
+	a := dial(t, srv, url.Values{"name": {"A"}})
+	code := a.waitFor("welcome", nil)["room"].(string)
+	b := dial(t, srv, url.Values{"room": {code}, "name": {"B"}})
+	b.waitFor("welcome", nil)
+
+	a.sendMsg(map[string]any{"t": "kick", "seat": 1})
+	if e := a.waitFor("error", nil); e["code"] != "still_connected" {
+		t.Fatalf("kicking a connected player: %v", e)
+	}
+	b.sendMsg(map[string]any{"t": "kick", "seat": 0})
+	if e := b.waitFor("error", nil); e["code"] != "not_host" {
+		t.Fatalf("non-host kick: %v", e)
+	}
+
+	b.conn.Close(websocket.StatusNormalClosure, "")
+	a.waitFor("state", func(m map[string]any) bool {
+		for _, p := range m["players"].([]any) {
+			if p := p.(map[string]any); p["seat"].(float64) == 1 && p["connected"] == false {
+				return true
+			}
+		}
+		return false
+	})
+	a.sendMsg(map[string]any{"t": "kick", "seat": 1})
+	a.waitFor("state", func(m map[string]any) bool { return len(m["players"].([]any)) == 1 })
+}

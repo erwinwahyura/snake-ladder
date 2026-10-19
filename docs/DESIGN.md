@@ -1,6 +1,6 @@
 # Design
 
-Last updated: 2026-10-19 (loop 2)
+Last updated: 2026-10-19 (loop 3)
 
 ## Shape
 
@@ -18,7 +18,8 @@ cmd/server/        main: flags/env, routes, graceful shutdown, security headers
 internal/game/     pure rules: board, house rules, Apply(), Game.Roll(), per-seat stats
 internal/room/     Hub (room registry), Room (one goroutine per table), WebSocket conn
 internal/stats/    leaderboard: JSON file, atomic writes, ranking
-web/               index.html, style.css, js/{main,scene,net,textures}.js, vendor/{three,fonts}
+web/               index.html, style.css, manifest.webmanifest, icons/, js/{main,scene,net,textures,audio}.js, vendor/{three,fonts}
+scripts/           browser end-to-end test (Playwright)
 deploy/            systemd unit, Caddy block, Ansible playbook
 docs/              this file, RESEARCH, REVIEW, CHANGELOG
 ```
@@ -79,11 +80,12 @@ JSON text frames, each with a `"t"` type field.
 | C→S | `rules` `{overshoot:"stay"\|"bounce", sixAgain}` | Host only, not while playing. |
 | C→S | `leave` | Frees your seat in the lobby. Mid-game it is the same as disconnecting. |
 | C→S | `react` `{emoji}` | Seated players only. One of 😂 😱 🔥 👏 😭 🐍, with a 1.2 s cooldown. |
+| C→S | `kick` `{seat}` | Host only, outside a game, and only for a disconnected seat. |
 | S→C | `welcome` | `seat` (−1 = spectator), `token`, `board`, `timing` |
 | S→C | `state` | Full snapshot after every change: phase, rules, players, turn, winner, deadline, server `now`, results, ranked |
 | S→C | `moved` | `move{seat,dice,from,landed,to,kind,bounced,stuck,again,won}`, `animMs`, `auto`. Always followed by a `state`. |
 | S→C | `reaction` | `{seat, emoji}` |
-| S→C | `error` | `code`: `not_seated`, `bad_reaction`, `room_not_found`, `server_full`, `not_host`, `not_your_turn`, `still_moving`, `already_playing`, `bad_rules`, `bad_message` |
+| S→C | `error` | `code`: `not_seated`, `bad_reaction`, `bad_seat`, `still_connected`, `room_not_found`, `server_full`, `not_host`, `not_your_turn`, `still_moving`, `already_playing`, `bad_rules`, `bad_message` |
 
 The connection URL is `/ws?room=CODE&name=NAME&token=TOKEN&pid=PLAYERID`. An empty `room` creates a new one.
 
@@ -109,6 +111,10 @@ The look is a printed warung board on a teak table at night.
 - **Colour.** The paper board uses light red, yellow, green and blue squares with ink numbers. Pawns are saturated glossy versions of the same four colours, so they pop against the tints. The table is dark teak under a warm pendant lamp.
 - **Type and UI.** The UI is made of paper slips with a 2.5 px ink outline and a hard, stamped shadow (no soft grey shadows). The type is Baloo 2 (Ek Type, from India), which fits the game's origin and Indonesian toy packaging.
 - **Language.** All copy is in Bahasa Indonesia.
+
+## Install (PWA)
+
+The page ships `manifest.webmanifest` (standalone display, teak theme colour) with 192/512 icons, a maskable icon and an Apple touch icon. The icons were drawn once with PIL and live in `web/icons`. There is no service worker yet; see REVIEW.
 
 ## Deploy
 

@@ -119,7 +119,7 @@ h2 { font-size: 1.5rem; }
 }
 .players ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
 .players li { display: grid; grid-template-columns: 18px 1fr auto; gap: 8px; align-items: center; }
-.players li.away { opacity: .45; }
+.players li.away .pawn-dot, .players li.away .who { opacity: .45; }
 .players li.turn .who { text-decoration: underline 3px; text-underline-offset: 4px; }
 .pawn-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--ink); }
 .who { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

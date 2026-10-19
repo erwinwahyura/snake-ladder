@@ -9,6 +9,7 @@ import (
 	"flag"
 	"io/fs"
 	"log/slog"
+	"mime"
 	"net/http"
 	"os"
 	"os/signal"
@@ -72,6 +73,7 @@ func run(addr, dataDir string, origins []string) error {
 }
 
 func routes(hub *room.Hub, store *stats.Store, origins []string) http.Handler {
+	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	mux := http.NewServeMux()
 	mux.Handle("GET /ws", hub.Handler(origins))
 	mux.HandleFunc("GET /api/leaderboard", func(w http.ResponseWriter, r *http.Request) {

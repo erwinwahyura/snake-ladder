@@ -227,6 +227,8 @@ func (r *Room) onMessage(c *client, m inMsg) {
 		r.onRules(c, m.Rules)
 	case msgReact:
 		r.onReact(c, m.Emoji)
+	case msgKick:
+		r.onKick(c, m.Seat)
 	default:
 		r.sendErr(c, "bad_message")
 	}
@@ -269,6 +271,25 @@ func (r *Room) onRules(c *client, rules *game.Rules) {
 		r.sendErr(c, "bad_rules")
 	default:
 		r.rules = *rules
+		r.broadcastState()
+	}
+}
+
+// onKick lets the host clear a seat whose player has gone, so a stale
+// lobby doesn't wait for someone who closed the tab. Connected players
+// can't be kicked: that would just be rude.
+func (r *Room) onKick(c *client, target *int) {
+	switch {
+	case c.seat < 0 || !r.seats[c.seat].host:
+		r.sendErr(c, "not_host")
+	case r.phase == PhasePlaying:
+		r.sendErr(c, "already_playing")
+	case target == nil || *target < 0 || *target >= Seats || r.seats[*target] == nil:
+		r.sendErr(c, "bad_seat")
+	case r.seats[*target].client != nil:
+		r.sendErr(c, "still_connected")
+	default:
+		r.seats[*target] = nil
 		r.broadcastState()
 	}
 }

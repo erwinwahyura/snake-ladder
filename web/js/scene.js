@@ -457,7 +457,7 @@ export class World {
 
   async rollDice(seat, value, ms) {
     const from = fromSeat(seat, 0.6, 2.2, 8.0);
-    const to = fromSeat(seat, 2.6, 0.4, 6.2 - Math.random() * 0.6);
+    const to = fromSeat(seat, 1.6 + Math.random() * 0.8, 0.4, 5.85 + Math.random() * 0.3); // just off the board edge, near the middle so every camera sees it
     const up = new THREE.Vector3(0, 1, 0);
     const align = new THREE.Quaternion().setFromUnitVectors(this.diceNormals[value], up);
     const yaw = new THREE.Quaternion().setFromAxisAngle(up, seatAngle(seat) + (Math.random() - 0.5) * 0.6);

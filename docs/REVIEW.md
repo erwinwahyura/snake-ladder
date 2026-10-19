@@ -4,6 +4,37 @@ Each loop ends with an honest pass over the build. New loops go on top.
 
 ---
 
+## Loop 3 — 2026-10-19
+
+### What I checked
+- **`go test -race ./...`** now also covers the HTTP layer:
+  - The page, the CSP header, the manifest's content type and long caching on vendored files.
+  - The leaderboard returns your own row and never leaks player IDs.
+  - Host removal works, along with its refusals: not host, player still connected, and wrong phase.
+- **Phone-sized browser run.** A guest leaves the lobby, and the host sees "Keluarkan" and removes them. A solo game then starts and the roll lands on-screen. The manifest loads as JSON. No console errors.
+- **Browser test script** is saved in `scripts/e2e_two_players.py` so it can be rerun.
+
+### Good
+- **It installs like Hafalan and Lembar:** home-screen icon and full-screen.
+- **Stale lobbies can be cleaned up** without restarting the table.
+- **The die stays in view** from all four seats.
+- **The strict CSP held up.** It blocked Playwright's eval-based helpers until the test context bypassed it, which shows the page itself runs no eval.
+
+### Not good yet
+- **No offline shell.** There is no service worker, so opening the installed app with no signal shows the browser's offline page. The game needs a connection anyway, but a friendly "Tidak ada koneksi" screen would be nicer.
+- **Leaderboard identity is still browser-trusted** (loop 1).
+- **Sound needs a first tap** (loop 2, a browser rule).
+- **Live games don't survive a server restart.** Deploys end running games, so deploy when nobody is playing (`/healthz` reports the room count).
+- **The one big untested path is real phones on real networks.** Headless swiftshader can't show frame pacing or touch feel. Next step: play a real game on two phones.
+
+### Next
+1. Play-test on two real Android phones over mobile data, and tune the turn timer, animation speed and camera.
+2. Server-signed player IDs (HMAC), so leaderboard rows can't be claimed by copying an ID.
+3. Service worker with an offline fallback page.
+4. Optional: a Nusantara-themed board (wayang snakes, bambu ladders) as a second layout. The board is already data-driven.
+
+---
+
 ## Loop 2 — 2026-10-19
 
 ### What I checked

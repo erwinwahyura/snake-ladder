@@ -307,6 +307,15 @@ function renderPlayers(st) {
       const where = document.createElement('span');
       where.className = 'where';
       where.textContent = p.playing ? (p.pos === 0 ? 'Mulai' : p.pos) : '';
+      // The host can clear a seat whose player has gone, outside a game.
+      if (amHost() && st.phase !== 'playing' && !p.connected && p.seat !== app.seat) {
+        const kick = document.createElement('button');
+        kick.className = 'btn small';
+        kick.textContent = 'Keluarkan';
+        kick.setAttribute('aria-label', `Keluarkan ${p.name} dari meja`);
+        kick.addEventListener('click', () => conn.send({ t: 'kick', seat: p.seat }));
+        where.replaceChildren(kick);
+      }
       li.append(dot, who, where);
       return li;
     }),
