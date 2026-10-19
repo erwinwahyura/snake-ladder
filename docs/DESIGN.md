@@ -1,6 +1,6 @@
 # Design
 
-Last updated: 2026-10-19 (loop 3)
+Last updated: 2026-10-19 (loop 4)
 
 ## Shape
 
@@ -17,7 +17,8 @@ browser ──HTTP──► /            static client (go:embed web/)
 cmd/server/        main: flags/env, routes, graceful shutdown, security headers
 internal/game/     pure rules: board, house rules, Apply(), Game.Roll(), per-seat stats
 internal/room/     Hub (room registry), Room (one goroutine per table), WebSocket conn
-internal/stats/    leaderboard: JSON file, atomic writes, ranking
+internal/stats/    leaderboard: JSON file, atomic writes, ranking by points, bot games apart
+internal/identity/ server-signed guest player IDs (HMAC), key in DATA_DIR/identity.key
 web/               index.html, style.css, manifest.webmanifest, icons/, js/{main,scene,net,textures,audio}.js, vendor/{three,fonts}
 scripts/           browser end-to-end test (Playwright)
 deploy/            systemd unit, Caddy block, Ansible playbook
@@ -61,13 +62,31 @@ anim = dice 1100ms + steps × 260ms + (snake|ladder ? 1000ms : 0) + settle 400ms
 
 `busyUntil = now + anim`. A roll before `busyUntil` is refused (`still_moving`). The turn deadline is `busyUntil + 20 s` (or `+ 2 s` for a disconnected player). When the timer fires, the server rolls for that player and marks the move `auto`. The timing constants are sent to clients in `welcome`, so both sides agree.
 
+### Table setup and bots
+
+- **Size.** `size` (2–4) decides which seat numbers are in use: `[0,2]` for two players (opposite each other), `[0,1,2]` for three, all four otherwise.
+- **Who gets a seat.** A person joining outside a game gets an empty seat first, then the seat of someone who left the lobby, then a bot's seat.
+- **Bots** are seats with `bot=true` and no client. When it is a bot's turn, the turn timer is set to `BotThink` (900 ms) plus up to half again. The roll goes out as a normal move with `auto=false`.
+- **Bots don't count as people.** They are never host. They don't keep a game running when every person has left; the pause rule only counts people.
+- **Public list.** Each room publishes a `Listing` (an atomic pointer) whenever its state changes. A room is listed only while it is public, not playing, has at least one person, and has a seat a person could take. `Hub.Public()` reads the pointers without touching room state, sorted by most people, then newest.
+
+### Points and recording
+
+`game.Placements()` ranks seats when a game ends: the winner first, then by square, with ties sharing a place. Points by place are 10/3 (2 players), 10/5/2 (3 players) and 10/6/3/1 (4 players).
+
+| People at the table | What's recorded |
+|---|---|
+| 2 or more | Points, wins, rolls and so on, for the people only; bots still take places |
+| 1 plus bots | `botGames` / `botWins` only, off the ranking |
+| 1 alone | Nothing |
+
 ### Identity
 
 | Thing | Where | Purpose |
 |---|---|---|
 | Room code | URL `?meja=K7QX` | Find the table. 4 characters with no look-alikes. |
 | Seat token | `localStorage ut.token.<room>` | Reclaim *this* seat after a reconnect. Server-generated, 130 bits. |
-| Player ID | `localStorage ut.pid` | Stable per browser, used for the leaderboard. Client-generated UUID. |
+| Player ID | `localStorage ut.pid` | `<id>.<hmac>`, issued by `GET /api/identity` and checked on `/ws` and the leaderboard. The leaderboard stores only `<id>`. `?akun=<pid>` moves it to another device. |
 
 ## Protocol
 
@@ -80,12 +99,14 @@ JSON text frames, each with a `"t"` type field.
 | C→S | `rules` `{overshoot:"stay"\|"bounce", sixAgain}` | Host only, not while playing. |
 | C→S | `leave` | Frees your seat in the lobby. Mid-game it is the same as disconnecting. |
 | C→S | `react` `{emoji}` | Seated players only. One of 😂 😱 🔥 👏 😭 🐍, with a 1.2 s cooldown. |
-| C→S | `kick` `{seat}` | Host only, outside a game, and only for a disconnected seat. |
+| C→S | `kick` `{seat}` | Host only, outside a game, and only for a disconnected person. |
+| C→S | `config` `{size?, public?}` | Host only, outside a game. Size is 2–4. |
+| C→S | `bot` `{action:"add"\|"remove"\|"fill", seat?}` | Host only, outside a game. |
 | S→C | `welcome` | `seat` (−1 = spectator), `token`, `board`, `timing` |
 | S→C | `state` | Full snapshot after every change: phase, rules, players, turn, winner, deadline, server `now`, results, ranked |
 | S→C | `moved` | `move{seat,dice,from,landed,to,kind,bounced,stuck,again,won}`, `animMs`, `auto`. Always followed by a `state`. |
 | S→C | `reaction` | `{seat, emoji}` |
-| S→C | `error` | `code`: `not_seated`, `bad_reaction`, `bad_seat`, `still_connected`, `room_not_found`, `server_full`, `not_host`, `not_your_turn`, `still_moving`, `already_playing`, `bad_rules`, `bad_message` |
+| S→C | `error` | `code`: `not_seated`, `bad_reaction`, `bad_seat`, `still_connected`, `bad_size`, `seats_taken`, `no_free_seat`, `room_not_found`, `server_full`, `not_host`, `not_your_turn`, `still_moving`, `already_playing`, `bad_rules`, `bad_message` |
 
 The connection URL is `/ws?room=CODE&name=NAME&token=TOKEN&pid=PLAYERID`. An empty `room` creates a new one.
 

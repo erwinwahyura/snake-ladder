@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/erwinwahyura/snake-ladder/internal/identity"
 	"github.com/erwinwahyura/snake-ladder/internal/room"
 	"github.com/erwinwahyura/snake-ladder/internal/stats"
 	"github.com/erwinwahyura/snake-ladder/web"
@@ -41,11 +42,15 @@ func run(addr, dataDir string, origins []string) error {
 	if err != nil {
 		return err
 	}
-	hub := room.NewHub(room.Config{Recorder: store})
+	signer, err := identity.LoadOrCreate(filepath.Join(dataDir, "identity.key"))
+	if err != nil {
+		return err
+	}
+	hub := room.NewHub(room.Config{Recorder: store, Verify: signer.Verify})
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           routes(hub, store, origins),
+		Handler:           routes(hub, store, signer, origins),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -72,7 +77,7 @@ func run(addr, dataDir string, origins []string) error {
 	return nil
 }
 
-func routes(hub *room.Hub, store *stats.Store, origins []string) http.Handler {
+func routes(hub *room.Hub, store *stats.Store, signer *identity.Signer, origins []string) http.Handler {
 	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
 	mux := http.NewServeMux()
 	mux.Handle("GET /ws", hub.Handler(origins))
@@ -80,12 +85,26 @@ func routes(hub *room.Hub, store *stats.Store, origins []string) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		resp := map[string]any{"players": store.Top(20)}
 		// ?pid= adds the caller's own row, even outside the top 20.
-		if pid := r.URL.Query().Get("pid"); stats.ValidID(pid) {
-			if me, ok := store.Rank(pid); ok {
+		if id, ok := signer.Verify(r.URL.Query().Get("pid")); ok {
+			if me, ok := store.Rank(id); ok {
 				resp["me"] = me
 			}
 		}
 		writeJSON(w, resp)
+	})
+	// A guest identity: the browser's signed ID back if it is valid, a new
+	// one otherwise. No sign-up; see docs/RESEARCH.md.
+	mux.HandleFunc("GET /api/identity", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		pid := r.URL.Query().Get("pid")
+		if _, ok := signer.Verify(pid); !ok {
+			pid = signer.Issue()
+		}
+		writeJSON(w, map[string]any{"pid": pid})
+	})
+	mux.HandleFunc("GET /api/rooms", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, map[string]any{"rooms": hub.Public(20)})
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": true, "rooms": hub.Len()})

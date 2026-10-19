@@ -94,6 +94,27 @@ h2 { font-size: 1.5rem; }
   color: var(--ink);
   min-width: 0;
 }
+.lobby { max-height: calc(100dvh - 2 * var(--gutter)); overflow-y: auto; }
+.lobby-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.open-tables { border-top: 2px dashed #b9ad90; padding-top: 10px; display: grid; gap: 6px; }
+.open-head { display: flex; justify-content: space-between; align-items: baseline; }
+.open-head h2 { font-size: 1.15rem; }
+.room-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.room-list li { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; padding: 6px 8px 6px 12px; border: 2px solid var(--ink); border-radius: 10px; background: #fff; }
+.room-list .meta { display: block; font-size: .85rem; color: var(--ink-soft); }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 2px 0 4px; }
+.seg label { display: block; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg span { display: block; text-align: center; font-weight: 800; padding: .35em 0 .25em; border: 2px solid var(--ink); border-radius: 10px; background: #fff; cursor: pointer; }
+.seg input:checked + span { background: var(--ink); color: var(--paper); }
+.seg input:focus-visible + span { outline: 3px solid var(--kuning); outline-offset: 2px; }
+.rules:disabled .seg span { cursor: default; }
+.bot-row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.players li.empty .who { color: var(--ink-soft); font-weight: 400; }
+.players li.empty .pawn-dot { opacity: .35; }
+.transfer { margin-top: 6px; }
+.transfer summary { cursor: pointer; font-weight: 600; }
+.transfer p { margin: 6px 0; }
 .join { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
 #join-code { text-transform: uppercase; letter-spacing: .15em; }
 
@@ -129,6 +150,8 @@ h2 { font-size: 1.5rem; }
 .tag { font-weight: 400; color: var(--ink-soft); font-size: .85rem; }
 
 .waiting {
+  max-height: calc(100dvh - 2 * var(--gutter));
+  overflow-y: auto;
   position: fixed;
   left: 50%; top: 50%;
   transform: translate(-50%, -50%);
@@ -201,6 +224,7 @@ h2 { font-size: 1.5rem; }
   .my-reaction { bottom: 230px; }
   .table { font-size: .9rem; }
   #results .table th:nth-child(4), #results .table td:nth-child(4), #results .table th:nth-child(5), #results .table td:nth-child(5) { display: none; }
+  .lobby-actions { grid-template-columns: 1fr; }
 }
 
 @media (prefers-reduced-motion: reduce) {

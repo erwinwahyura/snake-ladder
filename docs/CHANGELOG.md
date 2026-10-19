@@ -1,5 +1,28 @@
 # Changelog
 
+## Loop 4 — 2026-10-19
+
+### Added
+- **Table size.** The host picks 2, 3 or 4 players before the game. Two players sit opposite each other. Shrinking the table is refused if a connected person sits in a seat that would go away.
+- **Private or public tables.** Tables are private by default (code or link only). Public tables appear under **Meja terbuka** in the lobby (`GET /api/rooms`) while they have a seat free or a bot that can be replaced. The list shows the host, how many people and bots are seated, and the rules. It refreshes every 5 s.
+- **Bots.**
+  - The host can add a bot, fill every empty seat, or remove a bot. Bots have local names (Bot Ucok, Bot Siti, ...).
+  - Bots roll on the server after a short random pause (0.9–1.35 s).
+  - A person joining in the lobby takes a bot's seat if there is no empty one.
+- **"Main lawan bot".** One tap from the lobby gives you a private 4-seat table with 3 bots that starts immediately.
+- **Points.**
+  - Finishing places earn points: winner 10, then 6 / 3 / 1 at a 4-player table (10/5/2 for 3 players, 10/3 for 2). Pawns on the same square share a place.
+  - The leaderboard now ranks by points, then wins, then win rate. The results table shows each player's place and points.
+- **Bot games kept apart.** One person against bots is recorded as bot games and bot wins with no points, shown as a line under the leaderboard. It never appears on the ranking.
+- **Signed guest identity (`internal/identity`).**
+  - Player IDs are issued and HMAC-signed by the server (`GET /api/identity`), so they can't be forged. A forged or unknown ID still plays, but isn't recorded.
+  - The key lives in `DATA_DIR/identity.key`. Back it up together with `leaderboard.json`.
+- **"Pindah ke HP atau browser lain".** A private `?akun=` link moves your record to another device without an account.
+- **Docs.** RESEARCH covers how comparable games handle table size, bots, login, invites and points.
+
+### Fixed
+- **Public list lagging behind the table.** The list is now updated before the state is broadcast, so it never shows a table older than what players see.
+
 ## Loop 3 — 2026-10-19
 
 ### Added

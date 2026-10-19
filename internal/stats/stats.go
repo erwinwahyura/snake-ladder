@@ -21,12 +21,15 @@ import (
 type Record struct {
 	ID         string    `json:"-"`
 	Name       string    `json:"name"`
+	Points     int       `json:"points"` // from finishing places, see game.Placements
 	Games      int       `json:"games"`
 	Wins       int       `json:"wins"`
 	BestRolls  int       `json:"bestRolls"` // fewest rolls in a won game, 0 if never won
 	Rolls      int       `json:"rolls"`
 	Ladders    int       `json:"ladders"`
 	Snakes     int       `json:"snakes"`
+	BotGames   int       `json:"botGames"` // games against bots only, kept apart from the ranking
+	BotWins    int       `json:"botWins"`
 	LastPlayed time.Time `json:"lastPlayed"`
 }
 
@@ -38,6 +41,8 @@ type Result struct {
 	Rolls    int
 	Ladders  int
 	Snakes   int
+	Points   int  // for the finishing place
+	VsBots   bool // the only other players were bots
 }
 
 // Recorder is what the room layer needs; Store implements it.
@@ -105,7 +110,16 @@ func (s *Store) Record(results []Result) error {
 			s.recs[res.PlayerID] = r
 		}
 		r.Name = res.Name
+		r.LastPlayed = now
+		if res.VsBots {
+			r.BotGames++
+			if res.Won {
+				r.BotWins++
+			}
+			continue
+		}
 		r.Games++
+		r.Points += res.Points
 		r.Rolls += res.Rolls
 		r.Ladders += res.Ladders
 		r.Snakes += res.Snakes
@@ -120,8 +134,8 @@ func (s *Store) Record(results []Result) error {
 	return s.save()
 }
 
-// Top returns the best n players: most wins, then best win rate, then
-// fewest rolls in a winning game.
+// Top returns the best n players: most points, then most wins, then best
+// win rate, then fewest rolls in a winning game.
 func (s *Store) Top(n int) []Entry {
 	out := s.ranked()
 	if len(out) > n {
@@ -131,11 +145,15 @@ func (s *Store) Top(n int) []Entry {
 }
 
 // Rank returns one player's leaderboard row, wherever they are in it.
+// Someone who has only played bots gets Rank 0 and their bot record.
 func (s *Store) Rank(id string) (Entry, bool) {
 	for _, e := range s.ranked() {
 		if e.ID == id {
 			return e, true
 		}
+	}
+	if r, ok := s.Get(id); ok {
+		return Entry{Record: r}, true
 	}
 	return Entry{}, false
 }
@@ -144,6 +162,9 @@ func (s *Store) ranked() []Entry {
 	s.mu.Lock()
 	out := make([]Entry, 0, len(s.recs))
 	for _, r := range s.recs {
+		if r.Games == 0 {
+			continue // bot games only: not on the ranking
+		}
 		e := Entry{Record: *r}
 		if r.Games > 0 {
 			e.WinRate = float64(r.Wins) / float64(r.Games)
@@ -154,6 +175,9 @@ func (s *Store) ranked() []Entry {
 
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
+		if a.Points != b.Points {
+			return a.Points > b.Points
+		}
 		if a.Wins != b.Wins {
 			return a.Wins > b.Wins
 		}

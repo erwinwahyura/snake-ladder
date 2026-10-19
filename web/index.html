@@ -19,12 +19,15 @@
   <!-- Before joining: name, create a table, or join one by code. -->
   <main id="lobby" class="sheet lobby">
     <h1 class="title">Ular Tangga</h1>
-    <p class="lede">Buat meja, kirim kodenya ke teman, lalu lempar dadu. Sampai empat pemain.</p>
+    <p class="lede">Main bareng teman, orang lain, atau bot. Dua sampai empat pemain.</p>
     <label class="field">
       <span>Nama kamu</span>
       <input id="name" maxlength="16" autocomplete="nickname" placeholder="Misal: Budi" required>
     </label>
-    <button id="create" class="btn primary">Buat meja baru</button>
+    <div class="lobby-actions">
+      <button id="create" class="btn primary">Buat meja</button>
+      <button id="vs-bots" class="btn">Main lawan bot</button>
+    </div>
     <form id="join-form" class="join">
       <label class="field">
         <span>Punya kode meja?</span>
@@ -33,6 +36,14 @@
       <button class="btn">Gabung</button>
     </form>
     <p id="lobby-error" class="error" role="alert" hidden></p>
+    <section class="open-tables" aria-labelledby="open-title">
+      <div class="open-head">
+        <h2 id="open-title">Meja terbuka</h2>
+        <button id="refresh-rooms" class="link" type="button">Muat ulang</button>
+      </div>
+      <ul id="room-list" class="room-list"></ul>
+      <p id="room-empty" class="muted" hidden>Belum ada meja terbuka. Buat meja lalu pilih Publik supaya orang lain bisa ikut.</p>
+    </section>
     <button id="open-board" class="link">Lihat papan juara</button>
   </main>
 
@@ -57,6 +68,20 @@
     <section id="waiting" class="sheet waiting" hidden>
       <h2>Menunggu pemain</h2>
       <p id="waiting-hint" class="muted"></p>
+      <fieldset id="setup" class="rules">
+        <legend>Meja</legend>
+        <div class="seg" role="radiogroup" aria-label="Jumlah pemain">
+          <label><input type="radio" name="size" value="2"><span>2 pemain</span></label>
+          <label><input type="radio" name="size" value="3"><span>3 pemain</span></label>
+          <label><input type="radio" name="size" value="4"><span>4 pemain</span></label>
+        </div>
+        <label><input type="radio" name="visibility" value="private"> Privat: hanya lewat kode atau tautan</label>
+        <label><input type="radio" name="visibility" value="public"> Publik: muncul di Meja terbuka</label>
+        <div class="bot-row">
+          <button id="add-bot" class="btn small" type="button">Tambah bot</button>
+          <button id="fill-bots" class="btn small" type="button">Isi kursi kosong dengan bot</button>
+        </div>
+      </fieldset>
       <fieldset id="rules" class="rules">
         <legend>Aturan main</legend>
         <label><input type="radio" name="overshoot" value="stay"> Lewat 100: tetap di tempat</label>
@@ -82,7 +107,7 @@
   <dialog id="results" class="sheet modal">
     <h2 id="results-title"></h2>
     <table class="table">
-      <thead><tr><th>Pemain</th><th class="num">Petak</th><th class="num">Lemparan</th><th class="num">Tangga</th><th class="num">Ular</th></tr></thead>
+      <thead><tr><th class="num">#</th><th>Pemain</th><th class="num">Petak</th><th class="num">Tangga</th><th class="num">Ular</th><th class="num">Poin</th></tr></thead>
       <tbody id="results-body"></tbody>
     </table>
     <p id="results-note" class="muted"></p>
@@ -95,11 +120,17 @@
 
   <dialog id="leaderboard" class="sheet modal">
     <h2>Papan juara</h2>
-    <p class="muted">Hanya permainan dengan dua pemain atau lebih yang dihitung.</p>
+    <p class="muted">Poin dari tiap permainan dengan minimal dua orang: juara 1 dapat 10, lalu 6, 3 dan 1 (meja 4 orang). Lawan bot dicatat terpisah.</p>
     <table class="table">
-      <thead><tr><th class="num">#</th><th>Pemain</th><th class="num">Menang</th><th class="num">Main</th><th class="num">Tercepat</th></tr></thead>
+      <thead><tr><th class="num">#</th><th>Pemain</th><th class="num">Poin</th><th class="num">Menang</th><th class="num">Main</th></tr></thead>
       <tbody id="leaderboard-body"></tbody>
     </table>
+    <p id="my-bot-record" class="muted" hidden></p>
+    <details class="transfer">
+      <summary>Pindah ke HP atau browser lain</summary>
+      <p class="muted">Catatanmu tersimpan di browser ini tanpa akun. Buka tautan ini di perangkat lain untuk membawa catatanmu. Jangan dibagikan ke orang lain.</p>
+      <button id="copy-account" class="btn small" type="button">Salin tautan akunku</button>
+    </details>
     <div class="actions"><button id="leaderboard-close" class="btn">Tutup</button></div>
   </dialog>
 </body>

@@ -4,6 +4,44 @@ Each loop ends with an honest pass over the build. New loops go on top.
 
 ---
 
+## Loop 4 — 2026-10-19
+
+### What I checked
+- **`go test -race ./...`** covers:
+  - Table size: opposite seating for 2, spectator once full, refused shrink, bad size, non-host.
+  - Public listing: shows and hides correctly.
+  - Bots: fill, full table, a person replacing a bot, bots rolling on their own (not as timeouts), and a solo-vs-bots game recorded as a bot game with no ranking.
+  - Points by place, including ties.
+  - Signed IDs: forged, truncated, other key, persistence.
+  - The HTTP layer for `/api/identity`, `/api/rooms` and the leaderboard's own row.
+- **The public-list race was caught by repeating the tests 30 times.** It's fixed and the repeat run now passes.
+- **Browser runs:**
+  - Phone: "Main lawan bot" gives you plus 3 bots, and the game starts.
+  - Desktop: a host makes a public 3-seat table with a bot, and a second browser sees it under Meja terbuka and joins from the list.
+  - No console errors.
+
+### Good
+- **Solo play is finally a real game.** One tap gets you three opponents.
+- **Strangers can find each other** through Meja terbuka without sharing codes, while friends' tables stay private by default.
+- **Bots never take a seat a person wants**, and they never touch the ranking.
+- **Points are simple to explain** ("menang dapat 10") and don't reward luck twice.
+- **The leaderboard can't be written to with an invented ID**, and moving to a new phone keeps your record, all without sign-up.
+
+### Not good yet
+- **Public names aren't moderated.** A rude name would show in Meja terbuka. Names are short and plain text, but a word filter or report button may be needed if the game goes public.
+- **No friends or presence.** "Invite a friend who is online" still means WhatsApp. RESEARCH explains why it deserves its own loop.
+- **The `?akun=` link is a bearer secret.** Anyone who gets it owns that record, and there is no way to revoke it short of rotating the server key. That's acceptable for a casual game; optional Google or passkey sign-in is the real fix.
+- **Bots are just dice.** That's true to the game, but they have no personality, such as a reaction when they hit a snake.
+- **Older guest IDs.** Any unsigned IDs from earlier test runs are replaced on the next visit. Nothing was deployed yet, so no real records are affected.
+
+### Next
+1. "Teman main": remember people you played with, show who is online, and invite them to a table.
+2. Optional one-tap login (Google or passkey) that links to the guest ID.
+3. Bots send the odd reaction (🐍 when they get eaten, 😂 when you do).
+4. Name filter and a report button for public tables.
+
+---
+
 ## Loop 3 — 2026-10-19
 
 ### What I checked

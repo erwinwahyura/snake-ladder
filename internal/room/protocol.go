@@ -12,6 +12,8 @@ import "github.com/erwinwahyura/snake-ladder/internal/game"
 //	{"t":"rules","rules":{"overshoot":"stay","sixAgain":true}}   host, before start
 //	{"t":"react","emoji":"😂"}   seated players; one of Reactions, rate-limited
 //	{"t":"kick","seat":2}        host, outside a game, only a disconnected seat
+//	{"t":"config","size":3,"public":true}       host, outside a game
+//	{"t":"bot","action":"add"|"remove"|"fill","seat":1}   host, outside a game
 //
 // Server → client:
 //
@@ -21,12 +23,14 @@ import "github.com/erwinwahyura/snake-ladder/internal/game"
 //	reaction someone at the table sent an emoji
 //	error    something was refused; "code" is machine-readable
 const (
-	msgStart = "start"
-	msgRoll  = "roll"
-	msgLeave = "leave"
-	msgRules = "rules"
-	msgReact = "react"
-	msgKick  = "kick"
+	msgStart  = "start"
+	msgRoll   = "roll"
+	msgLeave  = "leave"
+	msgRules  = "rules"
+	msgReact  = "react"
+	msgKick   = "kick"
+	msgConfig = "config"
+	msgBot    = "bot"
 )
 
 // Reactions are the only emoji the server relays. A fixed set keeps the
@@ -50,10 +54,13 @@ const (
 )
 
 type inMsg struct {
-	T     string      `json:"t"`
-	Rules *game.Rules `json:"rules,omitempty"`
-	Emoji string      `json:"emoji,omitempty"`
-	Seat  *int        `json:"seat,omitempty"`
+	T      string      `json:"t"`
+	Rules  *game.Rules `json:"rules,omitempty"`
+	Emoji  string      `json:"emoji,omitempty"`
+	Seat   *int        `json:"seat,omitempty"`
+	Size   *int        `json:"size,omitempty"`
+	Public *bool       `json:"public,omitempty"`
+	Action string      `json:"action,omitempty"`
 }
 
 type boardView struct {
@@ -82,6 +89,7 @@ type playerView struct {
 	Pos       int    `json:"pos"`
 	Connected bool   `json:"connected"`
 	Host      bool   `json:"host"`
+	Bot       bool   `json:"bot"`
 	Playing   bool   `json:"playing"`
 }
 
@@ -89,6 +97,8 @@ type stateMsg struct {
 	T          string       `json:"t"`
 	Room       string       `json:"room"`
 	Phase      string       `json:"phase"`
+	Size       int          `json:"size"`   // seats in use: 2, 3 or 4
+	Public     bool         `json:"public"` // listed under "Meja terbuka"
 	Rules      game.Rules   `json:"rules"`
 	Players    []playerView `json:"players"`
 	Turn       int          `json:"turn"`     // seat, -1 if none
@@ -102,12 +112,15 @@ type stateMsg struct {
 
 type resultView struct {
 	Seat    int    `json:"seat"`
+	Place   int    `json:"place"`  // 1 = winner; equal squares share a place
+	Points  int    `json:"points"` // leaderboard points earned (ranked games only)
 	Name    string `json:"name"`
 	Pos     int    `json:"pos"`
 	Rolls   int    `json:"rolls"`
 	Ladders int    `json:"ladders"`
 	Snakes  int    `json:"snakes"`
 	Won     bool   `json:"won"`
+	Bot     bool   `json:"bot"`
 }
 
 type movedMsg struct {

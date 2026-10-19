@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+
+	"github.com/erwinwahyura/snake-ladder/internal/stats"
 )
 
 // client is one WebSocket connection. Its seat and detached fields are
@@ -55,13 +57,26 @@ func (h *Hub) Handler(originPatterns []string) http.HandlerFunc {
 
 		c := &client{conn: conn, send: make(chan []byte, sendBuffer), seat: -1}
 		go c.writeLoop(ctx)
-		if !r.post(joinEv{c: c, name: q.Get("name"), token: q.Get("token"), pid: q.Get("pid")}) {
+		if !r.post(joinEv{c: c, name: q.Get("name"), token: q.Get("token"), pid: h.playerID(q.Get("pid"))}) {
 			conn.CloseNow()
 			return
 		}
 		c.readLoop(ctx, r)
 		r.post(leaveEv{c: c})
 	}
+}
+
+// playerID checks the client's signed ID. An unknown or forged ID just
+// means the player's games aren't recorded; they can still play.
+func (h *Hub) playerID(token string) string {
+	if h.cfg.Verify != nil {
+		id, _ := h.cfg.Verify(token)
+		return id
+	}
+	if stats.ValidID(token) {
+		return token
+	}
+	return ""
 }
 
 func (c *client) readLoop(ctx context.Context, r *Room) {

@@ -4,6 +4,7 @@ import (
 	crand "crypto/rand"
 	"errors"
 	"math/rand/v2"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -21,6 +22,7 @@ type Timing struct {
 	Step          time.Duration // one tile hop
 	Jump          time.Duration // snake slide or ladder climb
 	Settle        time.Duration // pause after a move before the next turn
+	BotThink      time.Duration // a bot waits this long (plus up to half again) before rolling
 	IdleRoomTTL   time.Duration // empty rooms are removed after this
 	IdleCheck     time.Duration // how often to look for idle rooms
 }
@@ -34,6 +36,7 @@ func DefaultTiming() Timing {
 		Step:          260 * time.Millisecond,
 		Jump:          1000 * time.Millisecond,
 		Settle:        400 * time.Millisecond,
+		BotThink:      900 * time.Millisecond,
 		IdleRoomTTL:   10 * time.Minute,
 		IdleCheck:     time.Minute,
 	}
@@ -46,6 +49,9 @@ type Config struct {
 	Dice     func() int // returns 1..6; defaults to a fair die
 	MaxRooms int
 	Recorder stats.Recorder // finished games go here; nil disables the leaderboard
+	// Verify turns a client's signed player ID into the stable ID the
+	// leaderboard stores. Nil accepts any well-formed ID (tests).
+	Verify func(token string) (string, bool)
 }
 
 // ErrTooManyRooms is returned when the hub is at capacity.
@@ -117,6 +123,29 @@ func (h *Hub) Close() {
 	for _, r := range rooms {
 		r.stop()
 	}
+}
+
+// Public lists open public tables that someone could join right now:
+// fullest first (a game starts sooner), then newest.
+func (h *Hub) Public(limit int) []Listing {
+	h.mu.Lock()
+	out := []Listing{}
+	for _, r := range h.rooms {
+		if l := r.listing.Load(); l != nil {
+			out = append(out, *l)
+		}
+	}
+	h.mu.Unlock()
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Humans != out[j].Humans {
+			return out[i].Humans > out[j].Humans
+		}
+		return out[i].created.After(out[j].created)
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
 }
 
 func (h *Hub) remove(code string) {
