@@ -30,7 +30,8 @@ const (
 )
 
 // Handler upgrades /ws?room=CODE&name=NAME&token=TOKEN&pid=PLAYERID.
-// An empty room creates a new one. The token reclaims a seat after a
+// An empty room creates a new one; match=1 instead joins or opens a
+// Cari lawan table. The token reclaims a seat after a
 // reconnect; pid is the browser's stable ID for the leaderboard.
 func (h *Hub) Handler(originPatterns []string) http.HandlerFunc {
 	return func(w http.ResponseWriter, req *http.Request) {
@@ -43,7 +44,13 @@ func (h *Hub) Handler(originPatterns []string) http.HandlerFunc {
 		q := req.URL.Query()
 
 		var r *Room
-		if code := q.Get("room"); code == "" {
+		if code := q.Get("room"); code == "" && q.Get("match") != "" {
+			r, err = h.QuickMatch()
+			if err != nil {
+				closeWithError(ctx, conn, "server_full")
+				return
+			}
+		} else if code == "" {
 			r, err = h.Create()
 			if err != nil {
 				closeWithError(ctx, conn, "server_full")

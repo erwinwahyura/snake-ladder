@@ -57,6 +57,7 @@ const app = {
   joinedOnce: false,
   lastPhase: null,
   intent: null, // 'bots' when "Main lawan bot" is setting up its table
+  matchRetries: 0,
 };
 
 await document.fonts.load('800 64px "Baloo 2"').catch(() => {});
@@ -99,6 +100,26 @@ $('create').addEventListener('click', () => {
   if (!requireName()) return;
   enterRoom('');
 });
+
+// Cari lawan: the server seats you at the busiest waiting table, or opens
+// one; it starts when full, or after 30 s with bots in the empty seats.
+$('quick-match').addEventListener('click', () => {
+  if (!requireName()) return;
+  app.matchRetries = 0;
+  findMatch();
+});
+
+function findMatch() {
+  showLobbyError('');
+  app.room = null;
+  conn.connect(() => ({
+    room: app.room || '',
+    match: app.room ? '' : '1',
+    name: myName(),
+    token: app.room ? store.get(`ut.token.${app.room}`) : '',
+    pid: playerId(),
+  }));
+}
 
 // One tap to a full table: you plus three bots, starting straight away.
 $('vs-bots').addEventListener('click', () => {
@@ -158,11 +179,11 @@ function renderRooms(rooms) {
     ...rooms.map((r) => {
       const li = document.createElement('li');
       const info = document.createElement('div');
-      info.append(Object.assign(document.createElement('b'), { textContent: `Meja ${r.host}` }));
-      const people = `${r.humans}/${r.size} orang${r.bots ? `, ${r.bots} bot` : ''}`;
+      info.append(Object.assign(document.createElement('b'), { textContent: r.match ? 'Cari lawan' : `Meja ${r.host}` }));
+      const people = `${r.humans}/${r.size} orang${r.bots ? `, ${r.bots} bot` : ''}${r.match ? ', mulai otomatis' : ''}`;
       info.append(Object.assign(document.createElement('span'), { className: 'meta', textContent: `${people}, ${RULES_SHORT(r.rules)}` }));
       const join = Object.assign(document.createElement('button'), { className: 'btn small', textContent: 'Gabung', type: 'button' });
-      join.setAttribute('aria-label', `Gabung ke meja ${r.host}`);
+      join.setAttribute('aria-label', r.match ? 'Gabung ke meja Cari lawan' : `Gabung ke meja ${r.host}`);
       join.addEventListener('click', () => {
         if (requireName()) enterRoom(r.code);
       });
@@ -457,6 +478,13 @@ function onError(msg) {
     seats_taken: 'Ada pemain di kursi yang mau dihapus. Minta dia keluar dulu, atau pilih jumlah yang lebih besar.',
     no_free_seat: 'Semua kursi sudah terisi.',
   }[msg.code];
+  if (msg.code === 'match_full') {
+    // Someone took the last seat first; look again.
+    if (app.matchRetries++ < 3) return findMatch();
+    backToLobby();
+    showLobbyError('Belum dapat meja. Coba "Cari lawan" lagi.');
+    return;
+  }
   if (msg.code === 'room_not_found' || msg.code === 'server_full') {
     if (app.room) store.del(`ut.token.${app.room}`);
     backToLobby();
@@ -597,10 +625,28 @@ function renderReactions() {
   );
 }
 
+let matchTicker;
 function renderWaiting(st) {
   const show = st.phase === 'lobby';
   $('waiting').hidden = !show;
+  clearInterval(matchTicker);
   if (!show) return;
+  // A Cari lawan table has no host and nothing to set up: just the clock.
+  for (const id of ['setup', 'rules', 'start']) $(id).hidden = st.match;
+  $('leave').textContent = st.match ? 'Batal cari' : 'Keluar dari kursi';
+  $('waiting').querySelector('h2').textContent = st.match ? 'Mencari lawan' : 'Menunggu pemain';
+  if (st.match) {
+    const people = st.players.filter((p) => !p.bot && p.connected).length;
+    const tick = () => {
+      const left = Math.max(0, Math.ceil((st.matchAt - (Date.now() + app.clockSkew)) / 1000));
+      $('waiting-hint').textContent =
+        `${people}/${st.size} orang. Mulai dalam ${left} dtk, atau langsung saat meja penuh. Kursi kosong diisi bot.`;
+    };
+    tick();
+    matchTicker = setInterval(tick, 250);
+    $('invite-open').hidden = app.seat < 0;
+    return;
+  }
   const host = amHost();
   const people = st.players.filter((p) => !p.bot && p.connected).length;
   const bots = st.players.filter((p) => p.bot).length;
@@ -680,7 +726,8 @@ function showResults(st) {
     : humans === 1 && st.results.length > 1
       ? 'Lawan bot dicatat terpisah, tanpa poin.'
       : 'Main sendiri tidak dicatat.';
-  $('rematch').hidden = !amHost();
+  $('rematch').hidden = !amHost() && !st.match;
+  $('rematch').textContent = st.match ? 'Cari lawan lagi' : 'Main lagi';
   $('results').showModal();
 }
 
@@ -703,6 +750,12 @@ addEventListener('keydown', (e) => {
 $('start').addEventListener('click', () => conn.send({ t: 'start' }));
 $('rematch').addEventListener('click', () => {
   $('results').close();
+  if (app.state?.match) {
+    backToLobby();
+    app.matchRetries = 0;
+    findMatch();
+    return;
+  }
   conn.send({ t: 'start' });
 });
 $('results-close').addEventListener('click', () => $('results').close());
@@ -713,6 +766,7 @@ $('results-board').addEventListener('click', () => {
 $('leave').addEventListener('click', () => {
   conn.send({ t: 'leave' });
   if (app.room) store.del(`ut.token.${app.room}`);
+  if (app.state?.match) backToLobby(); // nothing to watch at a table you stopped waiting for
 });
 
 $('rules').addEventListener('change', () => {

@@ -43,6 +43,12 @@ type Room struct {
 	reports    map[string]bool // player IDs who reported this public table
 	delisted   bool            // reported enough to leave the public list
 
+	// Cari lawan: a hostless public table that starts by itself when full,
+	// or when matchTimer fires, with bots in any empty seats.
+	match         bool
+	matchDeadline time.Time
+	matchTimer    *time.Timer
+
 	// listing is the room's entry in the public list, or nil. It is the
 	// only room state read from other goroutines (by the hub).
 	listing atomic.Pointer[Listing]
@@ -80,7 +86,10 @@ type msgEv struct {
 func newRoom(code string, h *Hub) *Room {
 	t := time.NewTimer(time.Hour)
 	t.Stop()
+	mt := time.NewTimer(time.Hour)
+	mt.Stop()
 	return &Room{
+		matchTimer: mt,
 		code:       code,
 		hub:        h,
 		cfg:        h.cfg,
@@ -125,6 +134,7 @@ func (r *Room) run() {
 	defer func() {
 		idle.Stop()
 		r.turnTimer.Stop()
+		r.matchTimer.Stop()
 		for _, s := range r.seats {
 			if s != nil && s.client != nil {
 				r.markSeated(s, false)
@@ -157,6 +167,8 @@ func (r *Room) run() {
 			}
 		case <-r.turnTimer.C:
 			r.onTurnTimeout()
+		case <-r.matchTimer.C:
+			r.onMatchTimeout()
 		case <-idle.C:
 			if r.connected() == 0 && time.Since(r.lastActive) > r.cfg.Timing.IdleRoomTTL {
 				slog.Info("room closed (idle)", "room", r.code)
@@ -197,15 +209,22 @@ func (r *Room) onJoin(ev joinEv) {
 	if r.phase != PhasePlaying {
 		if i := r.freeSeat(); i >= 0 {
 			s := &seat{pid: ev.pid, name: cleanName(ev.name, i), token: newToken(), client: c}
-			if r.host() < 0 {
+			if r.host() < 0 && !r.match {
 				s.host = true
 			}
 			r.seats[i], c.seat = s, i
 			r.markSeated(s, true)
 			r.welcome(c, s.token)
 			r.broadcastState()
+			r.maybeStartMatch()
 			return
 		}
+	}
+	if r.match && r.phase == PhaseLobby {
+		// Lost a race for the last seat: the client just searches again.
+		r.sendErr(c, "match_full")
+		r.detach(c)
+		return
 	}
 
 	r.spectators[c] = struct{}{}
@@ -275,6 +294,12 @@ func (r *Room) onStart(c *client) {
 		r.sendErr(c, "already_playing")
 		return
 	}
+	r.startGame()
+}
+
+// startGame seats everyone present and begins play.
+func (r *Room) startGame() {
+	r.matchTimer.Stop()
 	// Seats whose player wandered off before the start are freed up.
 	var order []int
 	for i, s := range r.seats {
@@ -613,6 +638,7 @@ func (r *Room) state() stateMsg {
 		Phase:      r.phase,
 		Size:       r.size,
 		Public:     r.public,
+		Match:      r.match,
 		Rules:      r.rules,
 		Players:    []playerView{},
 		Turn:       -1,
@@ -647,6 +673,9 @@ func (r *Room) state() stateMsg {
 	}
 	if r.phase == PhaseFinished {
 		st.Results = r.results()
+	}
+	if r.match && r.phase == PhaseLobby {
+		st.MatchAt = r.matchDeadline.UnixMilli()
 	}
 	return st
 }

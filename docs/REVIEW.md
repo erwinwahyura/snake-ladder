@@ -4,6 +4,36 @@ Each loop ends with an honest pass over the build. New loops go on top.
 
 ---
 
+## Loop 6 — 2026-10-19
+
+### What I checked
+- **Race tests:**
+  - Four searchers land at the same table, which starts at once with no bots.
+  - A running match isn't listed, and the next searcher gets a new table.
+  - Nobody can reconfigure a hostless table.
+  - One searcher gets 3 bots after the wait.
+  - A table everyone left doesn't start.
+  - The quick-match tests were repeated 10 times.
+- **Browser run:**
+  1. Budi (phone) searches, and the table shows under Meja terbuka on Sari's screen.
+  2. Sari searches and lands at the same table.
+  3. After 30 s two bots sit down and the game starts.
+  4. No console errors.
+
+### Good
+- **"Main sekarang" is finally one tap,** even with nobody else online, because the 30 s backfill guarantees a game.
+- **No rating or queue to maintain.** It's built from parts that already existed: public tables, bots replaced by people, the points rules.
+
+### Not good yet
+- **Two people searching at the exact same moment** can each open their own table if neither is listed yet. That's rare at this scale; a small "pending table" slot in the hub would fix it if it ever matters.
+- **Waiting time is fixed at 30 s.** With more players a shorter wait (or a wait that shrinks with how many people are online) would feel snappier.
+
+### Next
+1. Deploy to Hetzner, then play-test on real phones.
+2. Optional Google / passkey sign-in.
+
+---
+
 ## Loop 5 — 2026-10-19
 
 ### What I checked

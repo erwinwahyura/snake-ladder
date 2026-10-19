@@ -1,6 +1,6 @@
 # Design
 
-Last updated: 2026-10-19 (loop 5)
+Last updated: 2026-10-19 (loop 6)
 
 ## Shape
 
@@ -71,6 +71,13 @@ anim = dice 1100ms + steps × 260ms + (snake|ladder ? 1000ms : 0) + settle 400ms
 - **Bots** are seats with `bot=true` and no client. When it is a bot's turn, the turn timer is set to `BotThink` (900 ms) plus up to half again. The roll goes out as a normal move with `auto=false`.
 - **Bots don't count as people.** They are never host. They don't keep a game running when every person has left; the pause rule only counts people.
 - **Public list.** Each room publishes a `Listing` (an atomic pointer) whenever its state changes. A room is listed only while it is public, not playing, has at least one person, and has a seat a person could take. `Hub.Public()` reads the pointers without touching room state, sorted by most people, then newest.
+
+### Cari lawan (quick match)
+
+- **Joining.** `/ws?match=1` calls `Hub.QuickMatch()`. It picks the listed `match` table with the most people, or creates a room and runs `openMatch()` on it: public, 4 seats, default rules, no host, and `matchTimer` set to `MatchWait` (30 s).
+- **Starting.** The room starts as soon as every open seat holds a connected person (`maybeStartMatch` after each join). When the timer fires instead, it clears seats of people who left, fills the rest with bots and starts. If no person is connected it does nothing, and the room idles out.
+- **Losing the race.** A searcher who arrives after the last seat went gets `match_full`, and the client searches again.
+- **Listing.** Match tables are listed only in the lobby phase. `state.matchAt` carries the deadline for the countdown.
 
 ### Points and recording
 

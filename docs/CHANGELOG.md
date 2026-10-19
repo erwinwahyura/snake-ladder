@@ -1,5 +1,18 @@
 # Changelog
 
+## Loop 6 — 2026-10-19
+
+### Added
+- **Cari lawan** (quick match), the big button in the lobby.
+  - The server seats you at the waiting Cari lawan table with the most people, or opens a new one (`/ws?match=1`).
+  - These tables have no host, 4 seats and the standard rules. They're public, so they also appear under Meja terbuka as "Cari lawan, mulai otomatis".
+  - A table starts **as soon as all 4 seats hold people**. Otherwise it starts **after 30 s**, with bots in the empty seats. Either way you're playing within 30 seconds.
+  - The waiting screen shows people seated and a countdown, plus "Ajak teman main" and "Batal cari".
+  - If someone takes the last seat first, the client quietly searches again (up to 3 times).
+  - After the game, "Cari lawan lagi" starts a new search.
+  - Points work as before: with at least one other person it's ranked, and against bots only it's recorded separately. People met this way become Teman main.
+- **A Cari lawan table that everyone has left** doesn't start with only bots; it idles out.
+
 ## Loop 5 — 2026-10-19
 
 ### Added

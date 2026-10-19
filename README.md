@@ -28,6 +28,7 @@ Open two browser windows to play against yourself. A solo game works too, but it
 
 ## How it plays
 
+- **"Cari lawan"** seats you at a table with other people looking for a game. It starts when 4 people are there, or after 30 s with bots in the empty seats.
 - **"Main lawan bot"** starts a game against three bots straight away.
 - **"Buat meja"** makes a table where you are the host. The host chooses:
   - 2, 3 or 4 players

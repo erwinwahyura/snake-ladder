@@ -17,6 +17,7 @@ type Listing struct {
 	Humans  int        `json:"humans"`
 	Bots    int        `json:"bots"` // a person joining takes a bot's seat
 	Rules   game.Rules `json:"rules"`
+	Match   bool       `json:"match"` // a Cari lawan table, starting by itself
 	created time.Time
 }
 
@@ -155,11 +156,11 @@ func (r *Room) botThink() time.Duration {
 // publishListing updates the room's public entry. A table is listed only
 // while it is public, not mid-game, and has a seat a person could take.
 func (r *Room) publishListing() {
-	if !r.public || r.delisted || r.phase == PhasePlaying {
+	if !r.public || r.delisted || r.phase == PhasePlaying || (r.match && r.phase != PhaseLobby) {
 		r.listing.Store(nil)
 		return
 	}
-	l := Listing{Code: r.code, Size: r.size, Rules: r.rules, created: r.created}
+	l := Listing{Code: r.code, Size: r.size, Rules: r.rules, Match: r.match, created: r.created}
 	free := 0
 	for _, i := range r.openSeats() {
 		s := r.seats[i]
@@ -182,4 +183,47 @@ func (r *Room) publishListing() {
 		return
 	}
 	r.listing.Store(&l)
+}
+
+// openMatch turns a fresh room into a Cari lawan table: four seats, the
+// standard rules, public, no host, and a clock.
+func (r *Room) openMatch() {
+	r.match = true
+	r.public = true
+	r.size = Seats
+	r.rules = game.DefaultRules()
+	r.matchDeadline = time.Now().Add(r.cfg.Timing.MatchWait)
+	r.matchTimer.Reset(r.cfg.Timing.MatchWait)
+	r.publishListing()
+}
+
+// maybeStartMatch starts a Cari lawan table as soon as every seat holds a
+// connected person: no reason to keep a full table waiting.
+func (r *Room) maybeStartMatch() {
+	if !r.match || r.phase != PhaseLobby {
+		return
+	}
+	for _, i := range r.openSeats() {
+		if s := r.seats[i]; s == nil || s.bot || s.client == nil {
+			return
+		}
+	}
+	r.startGame()
+}
+
+// onMatchTimeout: time's up, so bots take the empty seats and play starts.
+// With nobody left at the table there is no one to play for; the room
+// just idles out.
+func (r *Room) onMatchTimeout() {
+	if !r.match || r.phase != PhaseLobby || r.connectedSeats() == 0 {
+		return
+	}
+	for _, i := range r.openSeats() {
+		if s := r.seats[i]; s != nil && !s.bot && s.client == nil {
+			r.seats[i] = nil // left while waiting: a bot sits in instead
+		}
+	}
+	for r.addBot() {
+	}
+	r.startGame()
 }
