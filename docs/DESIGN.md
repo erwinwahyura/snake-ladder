@@ -1,6 +1,6 @@
 # Design
 
-Last updated: 2026-10-19 (loop 1)
+Last updated: 2026-10-19 (loop 2)
 
 ## Shape
 
@@ -36,6 +36,7 @@ The `select` loop handles four things: inbox events, the turn timer, an idle tic
 - **Slow clients never block a room.** Sends are non-blocking. If a client's 32-message buffer is full, the room drops that client, which can then reconnect with its token.
 - **Idle rooms close themselves.** A room with no connections for 10 minutes removes itself from the hub.
 - **Hub cap.** The hub refuses new rooms past 1000.
+- **Pause when empty.** If no seated player is connected, the turn timer stops. It resumes when someone comes back.
 
 ### Phases
 
@@ -77,10 +78,12 @@ JSON text frames, each with a `"t"` type field.
 | C→S | `roll` | Your turn, not busy. |
 | C→S | `rules` `{overshoot:"stay"\|"bounce", sixAgain}` | Host only, not while playing. |
 | C→S | `leave` | Frees your seat in the lobby. Mid-game it is the same as disconnecting. |
+| C→S | `react` `{emoji}` | Seated players only. One of 😂 😱 🔥 👏 😭 🐍, with a 1.2 s cooldown. |
 | S→C | `welcome` | `seat` (−1 = spectator), `token`, `board`, `timing` |
 | S→C | `state` | Full snapshot after every change: phase, rules, players, turn, winner, deadline, server `now`, results, ranked |
 | S→C | `moved` | `move{seat,dice,from,landed,to,kind,bounced,stuck,again,won}`, `animMs`, `auto`. Always followed by a `state`. |
-| S→C | `error` | `code`: `room_not_found`, `server_full`, `not_host`, `not_your_turn`, `still_moving`, `already_playing`, `bad_rules`, `bad_message` |
+| S→C | `reaction` | `{seat, emoji}` |
+| S→C | `error` | `code`: `not_seated`, `bad_reaction`, `room_not_found`, `server_full`, `not_host`, `not_your_turn`, `still_moving`, `already_playing`, `bad_rules`, `bad_message` |
 
 The connection URL is `/ws?room=CODE&name=NAME&token=TOKEN&pid=PLAYERID`. An empty `room` creates a new one.
 
@@ -94,7 +97,9 @@ Full snapshots rather than diffs keep reconnects trivial: the client just render
   - **Camera framing.** The camera distance is computed so the board fits the screen. Portrait phones look down more steeply.
   - **Animation.** The dice are thrown from the roller's side and tumble to the server's value using a quaternion that puts the face up. Pawns hop tile by tile, climb ladders and slide down the snake's actual curve.
 - **`textures.js`** draws everything on canvases: the board, wood grain, snake skins, dice faces and name labels. The game ships no image files.
+- **`audio.js`** synthesises every sound with Web Audio oscillators and filtered noise, so there are no audio files. The mute setting is stored in `localStorage ut.mute`.
 - **`net.js`** handles reconnection with exponential backoff, and reconnects immediately when the tab becomes visible again.
+- **`?debug`** exposes `window.__ut = {world, app}` for browser tests.
 - **Board layout** is defined twice, in `internal/game.Classic()` and in `CLASSIC_BOARD` in `main.js`. The client copy is only there to draw the lobby background before joining; the server sends the real layout in `welcome`. Keep the two in sync.
 
 ## Visual direction

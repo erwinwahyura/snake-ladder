@@ -39,6 +39,13 @@ func TestRecordAndRank(t *testing.T) {
 		t.Fatalf("order = %+v", top)
 	}
 
+	if me, ok := s.Rank("cccccccc"); !ok || me.Rank != 3 {
+		t.Fatalf("Rank(c) = %+v %v", me, ok)
+	}
+	if _, ok := s.Rank("nobody00"); ok {
+		t.Fatal("unknown player should not rank")
+	}
+
 	// Reload from disk.
 	s2, err := Open(path)
 	if err != nil {

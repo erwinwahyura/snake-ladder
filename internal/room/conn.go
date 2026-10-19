@@ -13,10 +13,11 @@ import (
 // client is one WebSocket connection. Its seat and detached fields are
 // owned by the room goroutine.
 type client struct {
-	conn     *websocket.Conn
-	send     chan []byte
-	seat     int
-	detached bool
+	conn      *websocket.Conn
+	send      chan []byte
+	seat      int
+	detached  bool
+	lastReact time.Time
 }
 
 const (

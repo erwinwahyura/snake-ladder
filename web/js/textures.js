@@ -221,3 +221,12 @@ export function labelTexture(text, color) {
   ctx.fillText(text, x + 54, 68, w - 70);
   return finish(c);
 }
+
+export function emojiTexture(emoji) {
+  const [c, ctx] = canvas(128);
+  ctx.font = '96px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(emoji, 64, 72);
+  return finish(c);
+}

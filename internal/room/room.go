@@ -225,6 +225,8 @@ func (r *Room) onMessage(c *client, m inMsg) {
 		r.onLeave(c)
 	case msgRules:
 		r.onRules(c, m.Rules)
+	case msgReact:
+		r.onReact(c, m.Emoji)
 	default:
 		r.sendErr(c, "bad_message")
 	}
@@ -268,6 +270,23 @@ func (r *Room) onRules(c *client, rules *game.Rules) {
 	default:
 		r.rules = *rules
 		r.broadcastState()
+	}
+}
+
+// reactCooldown stops one player flooding the table with emoji.
+const reactCooldown = 1200 * time.Millisecond
+
+func (r *Room) onReact(c *client, emoji string) {
+	switch {
+	case c.seat < 0:
+		r.sendErr(c, "not_seated")
+	case !validReaction(emoji):
+		r.sendErr(c, "bad_reaction")
+	case time.Since(c.lastReact) < reactCooldown:
+		// Silently ignore: the button is already throttled client-side.
+	default:
+		c.lastReact = time.Now()
+		r.broadcast(reactionMsg{T: "reaction", Seat: c.seat, Emoji: emoji})
 	}
 }
 

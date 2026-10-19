@@ -1,6 +1,9 @@
 // App glue: lobby, room HUD, networking and the move queue.
 import { World, SEAT_COLORS } from './scene.js';
 import { Connection } from './net.js';
+import { sfx, unlock, isMuted, setMuted } from './audio.js';
+
+const REACTIONS = ['😂', '😱', '🔥', '👏', '😭', '🐍'];
 
 const $ = (id) => document.getElementById(id);
 const store = {
@@ -42,6 +45,8 @@ const world = new World($('scene'));
 // layout on join, so setBoard() then does nothing.
 world.setBoard(CLASSIC_BOARD);
 world.setIdle(true);
+// ?debug exposes internals for browser tests and poking from the console.
+if (new URLSearchParams(location.search).has('debug')) window.__ut = { world, app };
 
 const conn = new Connection({ onMessage, onStatus });
 
@@ -108,6 +113,7 @@ function onMessage(msg) {
     case 'welcome': return onWelcome(msg);
     case 'state': return onState(msg);
     case 'moved': return onMoved(msg);
+    case 'reaction': return onReaction(msg);
     case 'error': return onError(msg);
   }
 }
@@ -137,6 +143,7 @@ function onState(st) {
     world.setTurn(st.turn);
   }
   renderPlayers(st);
+  renderReactions();
   renderWaiting(st);
   renderRoll();
 
@@ -145,8 +152,20 @@ function onState(st) {
     $('results').open && $('results').close();
   }
   if (st.phase === 'finished' && app.lastPhase !== 'finished') {
-    // Wait for the winning move to finish animating before the results.
-    whenIdle(() => showResults(app.state));
+    // Let the winning move land, celebrate, then show the results.
+    whenIdle(async () => {
+      sfx.win();
+      await world.celebrate(st.winner);
+      showResults(app.state);
+    });
+  }
+  // Nudge the player when the turn comes round to them.
+  if (st.phase === 'playing' && st.turn === app.seat && app.seat >= 0 && (!prev || prev.turn !== app.seat)) {
+    whenIdle(() => {
+      if (!myTurn()) return;
+      sfx.turn();
+      if (document.visibilityState === 'visible') navigator.vibrate?.([40, 60, 40]);
+    });
   }
   app.lastPhase = st.phase;
 }
@@ -177,6 +196,32 @@ const idleWaiters = [];
 function whenIdle(fn) {
   if (!app.animating && app.queue.length === 0) fn();
   else idleWaiters.push(fn);
+}
+
+// seat → emoji, shown next to the name for a moment. Side seats' avatars
+// are often off-screen, so the players list is where everyone sees it.
+const recentReactions = new Map();
+const reactionTimers = new Map();
+
+function onReaction(msg) {
+  sfx.pop();
+  if (msg.seat === app.seat) return; // already shown when we tapped
+  world.showReaction(msg.seat, msg.emoji);
+  recentReactions.set(msg.seat, msg.emoji);
+  if (app.state) renderPlayers(app.state);
+  clearTimeout(reactionTimers.get(msg.seat));
+  reactionTimers.set(msg.seat, setTimeout(() => {
+    recentReactions.delete(msg.seat);
+    if (app.state) renderPlayers(app.state);
+  }, 2500));
+}
+
+function showMyReaction(emoji) {
+  const el = $('my-reaction');
+  el.textContent = emoji;
+  el.classList.remove('show');
+  void el.offsetWidth; // restart the animation
+  el.classList.add('show');
 }
 
 function onError(msg) {
@@ -258,6 +303,7 @@ function renderPlayers(st) {
       who.textContent = p.name + (p.seat === app.seat ? ' (kamu)' : '');
       if (p.host) who.append(Object.assign(document.createElement('span'), { className: 'tag', textContent: ' tuan rumah' }));
       if (!p.connected) who.append(Object.assign(document.createElement('span'), { className: 'tag', textContent: ' terputus' }));
+      if (recentReactions.has(p.seat)) who.append(Object.assign(document.createElement('span'), { className: 'bubble', textContent: recentReactions.get(p.seat) }));
       const where = document.createElement('span');
       where.className = 'where';
       where.textContent = p.playing ? (p.pos === 0 ? 'Mulai' : p.pos) : '';
@@ -273,6 +319,31 @@ function renderPlayers(st) {
 function amHost() {
   const me = app.state && app.state.players.find((p) => p.seat === app.seat);
   return !!(me && me.host);
+}
+
+function renderReactions() {
+  const bar = $('reactions');
+  if (app.seat < 0) {
+    bar.replaceChildren();
+    return;
+  }
+  if (bar.childElementCount) return;
+  bar.replaceChildren(
+    ...REACTIONS.map((e) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.textContent = e;
+      b.setAttribute('aria-label', `Kirim ${e}`);
+      b.addEventListener('click', () => {
+        conn.send({ t: 'react', emoji: e });
+        showMyReaction(e);
+        // Match the server's cooldown so taps are never silently dropped.
+        for (const x of bar.children) x.disabled = true;
+        setTimeout(() => { for (const x of bar.children) x.disabled = false; }, 1300);
+      });
+      return b;
+    }),
+  );
 }
 
 function renderWaiting(st) {
@@ -370,6 +441,10 @@ $('rematch').addEventListener('click', () => {
   conn.send({ t: 'start' });
 });
 $('results-close').addEventListener('click', () => $('results').close());
+$('results-board').addEventListener('click', () => {
+  $('results').close();
+  openLeaderboard();
+});
 $('leave').addEventListener('click', () => {
   conn.send({ t: 'leave' });
   if (app.room) store.del(`ut.token.${app.room}`);
@@ -406,15 +481,25 @@ async function openLeaderboard() {
   body.replaceChildren(row(['', 'Memuat…', '', '', '']));
   $('leaderboard').showModal();
   try {
-    const res = await fetch('/api/leaderboard');
-    const { players } = await res.json();
+    const res = await fetch(`/api/leaderboard?pid=${encodeURIComponent(playerId())}`);
+    const { players, me } = await res.json();
     if (!players.length) {
       body.replaceChildren(row(['', 'Belum ada juara. Main dengan teman untuk jadi yang pertama.', '', '', '']));
       return;
     }
-    body.replaceChildren(
-      ...players.map((p) => row([p.rank, p.name, p.wins, p.games, p.bestRolls ? `${p.bestRolls} lemparan` : '-'])),
-    );
+    const line = (p) => {
+      const tr = row([p.rank, p.name, p.wins, p.games, p.bestRolls ? `${p.bestRolls} lemparan` : '-']);
+      if (me && p.rank === me.rank) tr.className = 'me';
+      return tr;
+    };
+    const rows = players.map(line);
+    if (me && me.rank > players.length) {
+      const gap = document.createElement('tr');
+      gap.className = 'gap';
+      gap.innerHTML = '<td colspan="5">…</td>';
+      rows.push(gap, line(me));
+    }
+    body.replaceChildren(...rows);
   } catch {
     body.replaceChildren(row(['', 'Papan juara tidak bisa dimuat. Coba lagi.', '', '', '']));
   }
@@ -430,3 +515,19 @@ function row(cells) {
   });
   return tr;
 }
+
+// --- sound ---
+
+function renderMute() {
+  const m = isMuted();
+  $('mute').textContent = m ? 'Nyalakan suara' : 'Bisukan';
+  $('mute').setAttribute('aria-pressed', String(m));
+}
+$('mute').addEventListener('click', () => {
+  unlock();
+  setMuted(!isMuted());
+  renderMute();
+});
+renderMute();
+// Browsers only start audio after a gesture.
+for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, unlock, { passive: true });

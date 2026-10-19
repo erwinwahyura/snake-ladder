@@ -123,6 +123,24 @@ func (s *Store) Record(results []Result) error {
 // Top returns the best n players: most wins, then best win rate, then
 // fewest rolls in a winning game.
 func (s *Store) Top(n int) []Entry {
+	out := s.ranked()
+	if len(out) > n {
+		out = out[:n]
+	}
+	return out
+}
+
+// Rank returns one player's leaderboard row, wherever they are in it.
+func (s *Store) Rank(id string) (Entry, bool) {
+	for _, e := range s.ranked() {
+		if e.ID == id {
+			return e, true
+		}
+	}
+	return Entry{}, false
+}
+
+func (s *Store) ranked() []Entry {
 	s.mu.Lock()
 	out := make([]Entry, 0, len(s.recs))
 	for _, r := range s.recs {
@@ -145,11 +163,11 @@ func (s *Store) Top(n int) []Entry {
 		if a.BestRolls != b.BestRolls {
 			return a.BestRolls != 0 && (b.BestRolls == 0 || a.BestRolls < b.BestRolls)
 		}
-		return a.LastPlayed.After(b.LastPlayed)
+		if !a.LastPlayed.Equal(b.LastPlayed) {
+			return a.LastPlayed.After(b.LastPlayed)
+		}
+		return a.ID < b.ID
 	})
-	if len(out) > n {
-		out = out[:n]
-	}
 	for i := range out {
 		out[i].Rank = i + 1
 	}

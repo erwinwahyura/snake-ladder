@@ -10,19 +10,35 @@ import "github.com/erwinwahyura/snake-ladder/internal/game"
 //	{"t":"roll"}    roll the dice on your turn
 //	{"t":"leave"}   give up your seat
 //	{"t":"rules","rules":{"overshoot":"stay","sixAgain":true}}   host, before start
+//	{"t":"react","emoji":"😂"}   seated players; one of Reactions, rate-limited
 //
 // Server → client:
 //
 //	welcome  sent once after joining: your seat, reconnect token, board, timing
 //	state    full room snapshot, sent after every change
 //	moved    a dice roll to animate, sent just before the matching state
+//	reaction someone at the table sent an emoji
 //	error    something was refused; "code" is machine-readable
 const (
 	msgStart = "start"
 	msgRoll  = "roll"
 	msgLeave = "leave"
 	msgRules = "rules"
+	msgReact = "react"
 )
+
+// Reactions are the only emoji the server relays. A fixed set keeps the
+// table friendly and the messages tiny.
+var Reactions = []string{"😂", "😱", "🔥", "👏", "😭", "🐍"}
+
+func validReaction(e string) bool {
+	for _, r := range Reactions {
+		if r == e {
+			return true
+		}
+	}
+	return false
+}
 
 // Phases of a room.
 const (
@@ -34,6 +50,7 @@ const (
 type inMsg struct {
 	T     string      `json:"t"`
 	Rules *game.Rules `json:"rules,omitempty"`
+	Emoji string      `json:"emoji,omitempty"`
 }
 
 type boardView struct {
@@ -95,6 +112,12 @@ type movedMsg struct {
 	Move   game.Move `json:"move"`
 	AnimMs int64     `json:"animMs"`
 	Auto   bool      `json:"auto"` // rolled by the turn timer, not the player
+}
+
+type reactionMsg struct {
+	T     string `json:"t"`
+	Seat  int    `json:"seat"`
+	Emoji string `json:"emoji"`
 }
 
 type errorMsg struct {

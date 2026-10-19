@@ -76,7 +76,14 @@ func routes(hub *room.Hub, store *stats.Store, origins []string) http.Handler {
 	mux.Handle("GET /ws", hub.Handler(origins))
 	mux.HandleFunc("GET /api/leaderboard", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
-		writeJSON(w, map[string]any{"players": store.Top(20)})
+		resp := map[string]any{"players": store.Top(20)}
+		// ?pid= adds the caller's own row, even outside the top 20.
+		if pid := r.URL.Query().Get("pid"); stats.ValidID(pid) {
+			if me, ok := store.Rank(pid); ok {
+				resp["me"] = me
+			}
+		}
+		writeJSON(w, resp)
 	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, map[string]any{"ok": true, "rooms": hub.Len()})

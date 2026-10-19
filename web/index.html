@@ -42,6 +42,7 @@
         <b id="room-code" class="code"></b>
         <button id="copy-link" class="btn small">Salin tautan</button>
       </div>
+      <button id="mute" class="btn small sound" aria-pressed="false">Bisukan</button>
       <p id="conn" class="sheet chip conn" hidden></p>
     </header>
 
@@ -66,12 +67,15 @@
 
     <footer class="dock">
       <p id="log" class="sheet log" aria-live="polite"></p>
+      <div id="reactions" class="reactions" role="group" aria-label="Kirim reaksi"></div>
       <div class="roll-row">
         <p id="status" class="status"></p>
         <button id="roll" class="btn primary roll" disabled>Lempar dadu</button>
       </div>
     </footer>
   </div>
+
+  <div id="my-reaction" class="my-reaction" aria-hidden="true"></div>
 
   <dialog id="results" class="sheet modal">
     <h2 id="results-title"></h2>
@@ -83,6 +87,7 @@
     <div class="actions">
       <button id="rematch" class="btn primary">Main lagi</button>
       <button id="results-close" class="btn">Lihat meja</button>
+      <button id="results-board" class="link">Papan juara</button>
     </div>
   </dialog>
 

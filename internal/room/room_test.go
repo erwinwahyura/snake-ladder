@@ -273,3 +273,39 @@ func TestGamePausesWhenEveryoneLeaves(t *testing.T) {
 		t.Fatal("deadline should resume after reconnect")
 	}
 }
+
+func TestReactions(t *testing.T) {
+	srv, _ := newTestServer(t, &scriptedDice{}, nil)
+	a := dial(t, srv, url.Values{"name": {"A"}})
+	code := a.waitFor("welcome", nil)["room"].(string)
+	b := dial(t, srv, url.Values{"room": {code}, "name": {"B"}})
+	b.waitFor("welcome", nil)
+
+	a.sendMsg(map[string]any{"t": "react", "emoji": "🐍"})
+	got := b.waitFor("reaction", nil)
+	if got["seat"].(float64) != 0 || got["emoji"] != "🐍" {
+		t.Fatalf("reaction = %v", got)
+	}
+	a.sendMsg(map[string]any{"t": "react", "emoji": "<script>"})
+	if e := a.waitFor("error", nil); e["code"] != "bad_reaction" {
+		t.Fatalf("want bad_reaction, got %v", e)
+	}
+
+	// Within the cooldown a second reaction is dropped; B must not see it.
+	a.sendMsg(map[string]any{"t": "react", "emoji": "😂"})
+	a.sendMsg(map[string]any{"t": "start"}) // marker: anything before it was relayed already
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case m := <-b.msgs:
+			if m["t"] == "reaction" {
+				t.Fatalf("cooldown not applied: %v", m)
+			}
+			if m["t"] == "state" && m["phase"] == PhasePlaying {
+				return
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for start")
+		}
+	}
+}

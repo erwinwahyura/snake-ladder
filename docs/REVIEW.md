@@ -4,6 +4,34 @@ Each loop ends with an honest pass over the build. New loops go on top.
 
 ---
 
+## Loop 2 — 2026-10-19
+
+### What I checked
+- **Race tests pass,** including new cases for reactions (relay, whitelist, cooldown) and pausing when everyone leaves. The cooldown test watches every message up to a marker, so a leaked reaction fails it.
+- **Two-player browser run (desktop + phone):** a reaction is sent, appears in the other player's list, and no console errors occur.
+- **Confetti** was verified by stepping its tween by hand. In headless swiftshader each frame takes seconds, so time-based animations jump straight to the end and screenshots miss them. That is a test-environment limit, not a game bug.
+
+### Good
+- **Game feel is much better.** Sound carries most of the drama: the snake hiss followed by a falling whistle lands well.
+- **No asset weight.** Sound is generated in code, so the binary barely grew.
+- **Reactions are safe by construction.** Only a fixed set of emoji is accepted, there is no free text (so no moderation needed), and spam is rate-limited.
+- **Abandoned games can no longer farm leaderboard wins.**
+
+### Not good yet
+- **Sound only starts after the first tap or key** (a browser rule). Someone who joins via a link and never taps hears nothing until they do.
+- **Your own reaction is shown as a page overlay, not in 3D,** because you have no avatar. It works, but it is less charming.
+- **The leaderboard still trusts the browser ID** (from loop 1).
+- **No kick for AFK lobby players** (from loop 1).
+- **Can't install it like an app.** There is no manifest or icon, unlike the Hafalan/Lembar PWAs.
+- **Dice sometimes land at the screen edge on portrait phones** for side seats.
+
+### Next (loop 3)
+1. PWA manifest and icon, so it can be added to the home screen.
+2. Keep the dice landing on-screen for every seat.
+3. Host can remove a disconnected player from the lobby.
+
+---
+
 ## Loop 1 — 2026-10-19
 
 ### What I checked

@@ -1,5 +1,21 @@
 # Changelog
 
+## Loop 2 — 2026-10-19
+
+### Added
+- **Sound.** All effects are synthesised with Web Audio, so there are no audio files. Covered events: dice rattle and table knocks, pawn taps, ladder arpeggio, snake hiss and slide, stuck buzz, your-turn chime, win fanfare and reaction pop. A mute toggle in the top bar persists across visits.
+- **Your-turn nudge.** A chime plays and phones vibrate (Android) when the turn comes round to you. It waits until the previous move has finished animating.
+- **Win celebration.** A confetti burst comes from the winner's pawn before the results appear. It is skipped with reduced motion.
+- **Emoji reactions.** The set is 😂 😱 🔥 👏 😭 🐍. They appear above the sender's avatar and next to their name in the player list, because side seats are often off-screen. The server only relays this fixed set and applies a 1.2 s cooldown per connection.
+- **Leaderboard shows your own row.** Your row is highlighted, and appended below the top 20 if you are lower down (`/api/leaderboard?pid=`). It can also be opened from the results dialog.
+- **`?debug`.** Exposes `window.__ut` for browser tests.
+
+### Fixed
+- **Results table alignment.** Names are left-aligned and numbers right-aligned.
+- **Lobby background.** The board is drawn behind the lobby before you join, instead of an empty frame.
+- **Games no longer auto-play to the end when every seated player has left.** They pause and resume on reconnect. Previously an abandoned game would hand someone a leaderboard win.
+- **Spectators get a steeper overview camera,** so the seat-0 avatar no longer blocks the view.
+
 ## Loop 1 — 2026-10-19
 
 ### Added

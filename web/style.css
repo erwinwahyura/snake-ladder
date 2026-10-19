@@ -124,6 +124,8 @@ h2 { font-size: 1.5rem; }
 .pawn-dot { width: 16px; height: 16px; border-radius: 50%; border: 2px solid var(--ink); }
 .who { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .where { font-weight: 800; font-variant-numeric: tabular-nums; }
+.bubble { display: inline-block; margin-left: 6px; font-size: 1.2em; line-height: 1; animation: pop .35s ease-out; }
+@keyframes pop { from { transform: scale(.3); } 70% { transform: scale(1.25); } to { transform: scale(1); } }
 .tag { font-weight: 400; color: var(--ink-soft); font-size: .85rem; }
 
 .waiting {
@@ -157,6 +159,25 @@ h2 { font-size: 1.5rem; }
 .roll:not(:disabled) { animation: nudge 1.6s ease-in-out infinite; }
 @keyframes nudge { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 
+.sound { align-self: stretch; }
+.reactions { display: flex; gap: 6px; }
+.reactions button {
+  font-size: 1.3rem; line-height: 1; width: 44px; height: 44px; padding: 0;
+  border: 2px solid var(--ink); border-radius: 50%; background: var(--paper);
+  box-shadow: 0 2px 0 var(--ink); cursor: pointer;
+}
+.reactions button:active:not(:disabled) { transform: translateY(2px); box-shadow: none; }
+.reactions button:disabled { opacity: .45; cursor: default; }
+.reactions:empty { display: none; }
+.my-reaction { position: fixed; left: 50%; bottom: 210px; font-size: 3rem; pointer-events: none; transform: translateX(-50%); opacity: 0; }
+.my-reaction.show { animation: rise 1.6s ease-out; }
+@keyframes rise {
+  0% { opacity: 0; transform: translate(-50%, 20px) scale(.6); }
+  15% { opacity: 1; transform: translate(-50%, 0) scale(1.1); }
+  70% { opacity: 1; }
+  100% { opacity: 0; transform: translate(-50%, -90px) scale(1); }
+}
+
 /* --- dialogs --- */
 .modal { padding: 22px; width: min(520px, calc(100vw - 2 * var(--gutter))); color: var(--ink); }
 .modal::backdrop { background: rgba(20, 12, 6, .55); }
@@ -165,7 +186,9 @@ h2 { font-size: 1.5rem; }
 .table th { text-align: left; font-weight: 800; border-bottom: 2.5px solid var(--ink); padding: 4px 6px; }
 .table td { padding: 5px 6px; border-bottom: 1px dashed #b9ad90; }
 .table .num { text-align: right; }
-.table tr.winner td { font-weight: 800; }
+.table tr.winner td, .table tr.me td { font-weight: 800; }
+.table tr.me td { background: #fbe39a; }
+.table tr.gap td { text-align: center; border-bottom: 0; color: var(--ink-soft); }
 .actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; margin-top: 8px; }
 
 @media (max-width: 640px) {
@@ -174,11 +197,14 @@ h2 { font-size: 1.5rem; }
   .players li { grid-template-columns: 14px 1fr auto; }
   .pawn-dot { width: 12px; height: 12px; }
   .code { font-size: 1.25rem; }
+  .reactions button { width: 40px; height: 40px; font-size: 1.15rem; }
+  .my-reaction { bottom: 230px; }
   .table { font-size: .9rem; }
   #results .table th:nth-child(4), #results .table td:nth-child(4), #results .table th:nth-child(5), #results .table td:nth-child(5) { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .roll:not(:disabled) { animation: none; }
+  .my-reaction.show { animation-duration: .01s; }
   .btn { transition: none; }
 }

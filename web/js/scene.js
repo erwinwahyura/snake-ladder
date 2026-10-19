@@ -6,7 +6,8 @@
 import * as THREE from '../vendor/three/three.module.min.js';
 import { OrbitControls } from '../vendor/three/OrbitControls.js';
 import { RoundedBoxGeometry } from '../vendor/three/RoundedBoxGeometry.js';
-import { boardTexture, woodTexture, snakeSkin, diceFace, labelTexture, tileColRow } from './textures.js';
+import { boardTexture, woodTexture, snakeSkin, diceFace, labelTexture, emojiTexture, tileColRow } from './textures.js';
+import { sfx } from './audio.js';
 
 export const SEAT_COLORS = ['#d7261e', '#1f5fc0', '#1e8c45', '#f2b705'];
 export const SEAT_NAMES = ['Merah', 'Biru', 'Hijau', 'Kuning'];
@@ -464,6 +465,7 @@ export class World {
     const axis = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
     const spin = new THREE.Quaternion();
     const tumble = Math.PI * (4 + Math.random() * 2);
+    sfx.dice(ms);
 
     await this.tween(ms * 0.85, (t) => {
       const e = 1 - (1 - t) ** 3;
@@ -476,8 +478,9 @@ export class World {
     await this.tween(ms * 0.15, () => {});
   }
 
-  hop(seat, fromTile, toTile, ms) {
+  hop(seat, fromTile, toTile, ms, i = 0) {
     const pawn = this.pawns.get(seat);
+    sfx.hop(i);
     const a = this.pawnSpot(seat, fromTile);
     const b = this.pawnSpot(seat, toTile);
     return this.tween(ms, (t) => {
@@ -494,6 +497,7 @@ export class World {
 
     const pawn = this.pawns.get(m.seat);
     if (m.stuck) {
+      sfx.stuck();
       const home = pawn.position.clone();
       await this.tween(400, (t) => {
         pawn.position.x = home.x + Math.sin(t * Math.PI * 6) * 0.08 * (1 - t);
@@ -508,11 +512,12 @@ export class World {
     for (let i = 0; i < m.dice; i++) {
       if (tile === 100) dir = -1;
       const next = tile + dir;
-      await this.hop(m.seat, tile, next, timing.stepMs);
+      await this.hop(m.seat, tile, next, timing.stepMs, i);
       tile = next;
     }
 
     if (m.kind === 'ladder') {
+      sfx.ladder();
       const a = this.pawnSpot(m.seat, m.landed);
       const b = this.pawnSpot(m.seat, m.to);
       await this.tween(timing.jumpMs, (t) => {
@@ -520,6 +525,7 @@ export class World {
         pawn.position.y += 0.25 + Math.sin(t * Math.PI * 14) * 0.04;
       });
     } else if (m.kind === 'snake') {
+      sfx.snake();
       const curve = this.snakeCurves.get(m.landed);
       const end = this.pawnSpot(m.seat, m.to);
       const [ox, oz] = PAWN_OFFSET[m.seat];
@@ -530,6 +536,79 @@ export class World {
       pawn.position.copy(end);
     }
     this.placePawn(m.seat, m.to);
+  }
+
+  // Confetti from the winner's pawn: the one big moment in the game.
+  celebrate(seat) {
+    if (reducedMotion) return;
+    const pawn = this.pawns.get(seat);
+    const origin = pawn ? pawn.position.clone() : new THREE.Vector3();
+    const N = 260;
+    const geo = new THREE.PlaneGeometry(0.12, 0.2);
+    const mat = new THREE.MeshBasicMaterial({ side: THREE.DoubleSide });
+    const mesh = new THREE.InstancedMesh(geo, mat, N);
+    mesh.frustumCulled = false; // pieces fly far from where the bounds were first computed
+    const palette = [...SEAT_COLORS, '#fff6da'].map((c) => new THREE.Color(c));
+    const parts = [];
+    for (let i = 0; i < N; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const up = 5 + Math.random() * 5;
+      const out = 1 + Math.random() * 3;
+      parts.push({
+        v: new THREE.Vector3(Math.cos(a) * out, up, Math.sin(a) * out),
+        spin: new THREE.Vector3(Math.random() * 8, Math.random() * 8, Math.random() * 8),
+      });
+      mesh.setColorAt(i, palette[i % palette.length]);
+    }
+    this.scene.add(mesh);
+    const m4 = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const e = new THREE.Euler();
+    const p = new THREE.Vector3();
+    const one = new THREE.Vector3(1, 1, 1);
+    const dur = 3.2;
+    return this.tween(dur * 1000, (t) => {
+      const time = t * dur;
+      for (let i = 0; i < N; i++) {
+        const { v, spin } = parts[i];
+        // Gravity with air drag so the paper flutters down slowly.
+        const drag = 1 - Math.exp(-1.6 * time);
+        p.set(
+          origin.x + (v.x / 1.6) * drag,
+          Math.max(0.02, origin.y + (v.y / 1.6) * drag - 2.2 * time * time * 0.5 - 0.8 * time),
+          origin.z + (v.z / 1.6) * drag,
+        );
+        e.set(spin.x * time, spin.y * time, spin.z * time);
+        q.setFromEuler(e);
+        mesh.setMatrixAt(i, m4.compose(p, q, one));
+      }
+      mesh.instanceMatrix.needsUpdate = true;
+    }).then(() => {
+      this.scene.remove(mesh);
+      geo.dispose();
+      mat.dispose();
+    });
+  }
+
+  // An emoji rising above another player's head. Your own reactions are
+  // shown in the page instead, since you have no avatar.
+  showReaction(seat, emoji) {
+    if (seat === this.mySeat || seat < 0) return;
+    const tex = emojiTexture(emoji);
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+    sprite.scale.set(1.6, 1.6, 1);
+    const from = fromSeat(seat, (Math.random() - 0.5) * 1.2, 4.9, 10.5);
+    this.scene.add(sprite);
+    return this.tween(1800, (t) => {
+      sprite.position.set(from.x, from.y + t * 1.6, from.z);
+      sprite.material.opacity = t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3;
+      const s = 1.6 * (t < 0.15 ? t / 0.15 : 1);
+      sprite.scale.set(s, s, 1);
+    }).then(() => {
+      this.scene.remove(sprite);
+      tex.dispose();
+      sprite.material.dispose();
+    });
   }
 
   // --- loop ---
