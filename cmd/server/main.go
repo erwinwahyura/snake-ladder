@@ -1,0 +1,131 @@
+// Command server runs Ular Tangga: the web client, the WebSocket game
+// server and the leaderboard API, all from one binary.
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"flag"
+	"io/fs"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/erwinwahyura/snake-ladder/internal/room"
+	"github.com/erwinwahyura/snake-ladder/internal/stats"
+	"github.com/erwinwahyura/snake-ladder/web"
+)
+
+func main() {
+	addr := flag.String("addr", env("ADDR", ":8080"), "listen address")
+	dataDir := flag.String("data", env("DATA_DIR", "./data"), "directory for leaderboard.json")
+	origins := flag.String("origins", env("ORIGINS", ""), "extra allowed WebSocket origins, comma-separated (e.g. game.erwarx.com)")
+	flag.Parse()
+
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
+	if err := run(*addr, *dataDir, splitList(*origins)); err != nil {
+		slog.Error("server stopped", "err", err)
+		os.Exit(1)
+	}
+}
+
+func run(addr, dataDir string, origins []string) error {
+	store, err := stats.Open(filepath.Join(dataDir, "leaderboard.json"))
+	if err != nil {
+		return err
+	}
+	hub := room.NewHub(room.Config{Recorder: store})
+
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           routes(hub, store, origins),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	errc := make(chan error, 1)
+	go func() {
+		slog.Info("listening", "addr", addr, "data", dataDir)
+		errc <- srv.ListenAndServe()
+	}()
+
+	select {
+	case err := <-errc:
+		return err
+	case <-ctx.Done():
+	}
+	slog.Info("shutting down")
+	hub.Close() // close game sockets; Shutdown does not wait for hijacked conns
+	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := srv.Shutdown(sctx); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
+
+func routes(hub *room.Hub, store *stats.Store, origins []string) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("GET /ws", hub.Handler(origins))
+	mux.HandleFunc("GET /api/leaderboard", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, map[string]any{"players": store.Top(20)})
+	})
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, map[string]any{"ok": true, "rooms": hub.Len()})
+	})
+
+	static, err := fs.Sub(web.Files, ".")
+	if err != nil {
+		panic(err)
+	}
+	files := http.FileServerFS(static)
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/vendor/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		} else {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		files.ServeHTTP(w, r)
+	})
+	return securityHeaders(mux)
+}
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "same-origin")
+		h.Set("Content-Security-Policy", "default-src 'self'; connect-src 'self' ws: wss:; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func env(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
+
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
