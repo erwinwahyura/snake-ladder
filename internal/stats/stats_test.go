@@ -72,3 +72,17 @@ func TestBotGamesKeptApart(t *testing.T) {
 		t.Fatalf("bot record = %+v %v", me, ok)
 	}
 }
+
+func TestMove(t *testing.T) {
+	s, _ := Open("")
+	_ = s.Record([]Result{{PlayerID: "old-id-12", Name: "Budi", Won: true, Rolls: 20, Points: 10}, {PlayerID: "other-123", Name: "Sari", Points: 3}})
+	if err := s.Move("old-id-12", "new-id-12"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := s.Get("old-id-12"); ok {
+		t.Fatal("old ID should be gone")
+	}
+	if r, ok := s.Get("new-id-12"); !ok || r.Points != 10 || r.Wins != 1 || r.BestRolls != 20 || r.Name != "Budi" {
+		t.Fatalf("moved record = %+v %v", r, ok)
+	}
+}

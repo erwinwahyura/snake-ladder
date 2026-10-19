@@ -20,6 +20,7 @@ import (
 
 	"github.com/erwinwahyura/snake-ladder/internal/identity"
 	"github.com/erwinwahyura/snake-ladder/internal/room"
+	"github.com/erwinwahyura/snake-ladder/internal/social"
 	"github.com/erwinwahyura/snake-ladder/internal/stats"
 	"github.com/erwinwahyura/snake-ladder/web"
 )
@@ -46,11 +47,17 @@ func run(addr, dataDir string, origins []string) error {
 	if err != nil {
 		return err
 	}
-	hub := room.NewHub(room.Config{Recorder: store, Verify: signer.Verify})
+	friends, err := social.OpenFriends(filepath.Join(dataDir, "friends.json"))
+	if err != nil {
+		return err
+	}
+	var hub *room.Hub
+	soc := social.NewService(friends, signer.Verify, func(code string) bool { return hub.Listed(code) })
+	hub = room.NewHub(room.Config{Recorder: store, Verify: signer.Verify, Social: soc})
 
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           routes(hub, store, signer, origins),
+		Handler:           routes(app{hub: hub, store: store, signer: signer, social: soc, transfers: identity.NewTransfers()}, origins),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -77,10 +84,27 @@ func run(addr, dataDir string, origins []string) error {
 	return nil
 }
 
-func routes(hub *room.Hub, store *stats.Store, signer *identity.Signer, origins []string) http.Handler {
+// app is everything the HTTP routes need.
+type app struct {
+	hub       *room.Hub
+	store     *stats.Store
+	signer    *identity.Signer
+	social    *social.Service
+	transfers *identity.Transfers
+	claims    *limiter
+}
+
+func routes(a app, origins []string) http.Handler {
 	_ = mime.AddExtensionType(".webmanifest", "application/manifest+json")
+	if a.claims == nil {
+		a.claims = newLimiter()
+	}
+	hub, store, signer := a.hub, a.store, a.signer
 	mux := http.NewServeMux()
 	mux.Handle("GET /ws", hub.Handler(origins))
+	mux.Handle("GET /ws/presence", a.social.Handler(origins))
+	a.identityRoutes(mux)
+	a.socialRoutes(mux)
 	mux.HandleFunc("GET /api/leaderboard", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		resp := map[string]any{"players": store.Top(20)}

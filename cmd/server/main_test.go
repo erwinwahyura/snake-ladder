@@ -10,6 +10,7 @@ import (
 
 	"github.com/erwinwahyura/snake-ladder/internal/identity"
 	"github.com/erwinwahyura/snake-ladder/internal/room"
+	"github.com/erwinwahyura/snake-ladder/internal/social"
 	"github.com/erwinwahyura/snake-ladder/internal/stats"
 )
 
@@ -23,9 +24,12 @@ func TestRoutes(t *testing.T) {
 		{PlayerID: idOne, Name: "Budi", Won: true, Rolls: 20, Points: 10},
 		{PlayerID: idTwo, Name: "Sari", Rolls: 21, Points: 3},
 	})
-	hub := room.NewHub(room.Config{Recorder: store, Verify: signer.Verify})
+	friends, _ := social.OpenFriends("")
+	var hub *room.Hub
+	soc := social.NewService(friends, signer.Verify, func(code string) bool { return hub.Listed(code) })
+	hub = room.NewHub(room.Config{Recorder: store, Verify: signer.Verify, Social: soc})
 	defer hub.Close()
-	srv := httptest.NewServer(routes(hub, store, signer, nil))
+	srv := httptest.NewServer(routes(app{hub: hub, store: store, signer: signer, social: soc, transfers: identity.NewTransfers()}, nil))
 	defer srv.Close()
 
 	get := func(path string) (*http.Response, string) {
@@ -92,6 +96,66 @@ func TestRoutes(t *testing.T) {
 	}
 	if _, body = get("/api/rooms"); !strings.Contains(body, `"rooms":[]`) {
 		t.Fatalf("rooms = %s", body)
+	}
+
+	post := func(path string) (int, map[string]any) {
+		t.Helper()
+		res, err := http.Post(srv.URL+path, "", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		var m map[string]any
+		_ = json.NewDecoder(res.Body).Decode(&m)
+		return res.StatusCode, m
+	}
+
+	// Transfer: a one-time code carries the identity to another device.
+	st, m := post("/api/identity/transfer?pid=" + one)
+	code, _ := m["code"].(string)
+	if st != 200 || len(code) != 6 {
+		t.Fatalf("transfer = %d %v", st, m)
+	}
+	if st, m = post("/api/identity/claim?code=" + strings.ToLower(code)); st != 200 || m["pid"] != one {
+		t.Fatalf("claim = %d %v", st, m)
+	}
+	if st, _ = post("/api/identity/claim?code=" + code); st != 404 {
+		t.Fatalf("second claim = %d", st)
+	}
+	if st, _ = post("/api/identity/transfer?pid=forged.token"); st != 401 {
+		t.Fatalf("transfer with a bad pid = %d", st)
+	}
+
+	// Friends: playing together makes friends; the list has statuses.
+	friends.Met(map[string]string{idOne: "Budi", idTwo: "Sari"})
+	_, body = get("/api/friends?pid=" + one)
+	if !strings.Contains(body, `"name":"Sari"`) || strings.Contains(body, `"name":"Budi"`) {
+		t.Fatalf("friends = %s", body)
+	}
+
+	// Rotate: new key keeps the record and friends; the old key is dead.
+	st, m = post("/api/identity/rotate?pid=" + one)
+	fresh, _ := m["pid"].(string)
+	newID, ok := signer.Verify(fresh)
+	if st != 200 || !ok {
+		t.Fatalf("rotate = %d %v", st, m)
+	}
+	if _, ok := signer.Verify(one); ok {
+		t.Fatal("old key must stop working")
+	}
+	if rec, ok := store.Get(newID); !ok || rec.Points != 10 {
+		t.Fatalf("record not moved: %+v", rec)
+	}
+	if !friends.Has(idTwo, newID) {
+		t.Fatal("Sari's list should follow the new ID")
+	}
+
+	// Reports need a real player and a real table.
+	if st, _ = post("/api/rooms/ZZZZ/report?pid=" + two); st != 404 {
+		t.Fatalf("report unknown table = %d", st)
+	}
+	if st, _ = post("/api/rooms/ZZZZ/report?pid=nope"); st != 401 {
+		t.Fatalf("report without identity = %d", st)
 	}
 
 	if res, _ := get("/healthz"); res.StatusCode != 200 {

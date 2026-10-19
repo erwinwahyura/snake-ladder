@@ -87,6 +87,11 @@ Without accounts, the friends list would be built from people you've played with
 
 **Recommendation:** WhatsApp sharing covers the common case today. Build "Teman main" with online dots and invites as its own loop. It also benefits from optional login, because a friends list tied to one browser is fragile.
 
+**Built in loop 5:**
+- **No friend requests.** Sitting down to a game together *is* the friendship, which avoids a search and request surface that strangers could spam.
+- **Invites limited to friends**, and only while they have the app open.
+- **Fragility handled two ways:** one-time transfer codes, and "Ganti kunci" to retire a leaked key.
+
 ### Points
 Snakes and ladders is pure luck, so points should reward *playing and placing*, not skill or style.
 - **Points by finishing place:** the winner always gets **10**.

@@ -14,6 +14,7 @@ import "github.com/erwinwahyura/snake-ladder/internal/game"
 //	{"t":"kick","seat":2}        host, outside a game, only a disconnected seat
 //	{"t":"config","size":3,"public":true}       host, outside a game
 //	{"t":"bot","action":"add"|"remove"|"fill","seat":1}   host, outside a game
+//	{"t":"invite","friend":"<id>"}   seated player, outside a game: ask a friend over
 //
 // Server → client:
 //
@@ -31,6 +32,7 @@ const (
 	msgKick   = "kick"
 	msgConfig = "config"
 	msgBot    = "bot"
+	msgInvite = "invite"
 )
 
 // Reactions are the only emoji the server relays. A fixed set keeps the
@@ -61,6 +63,7 @@ type inMsg struct {
 	Size   *int        `json:"size,omitempty"`
 	Public *bool       `json:"public,omitempty"`
 	Action string      `json:"action,omitempty"`
+	Friend string      `json:"friend,omitempty"`
 }
 
 type boardView struct {
@@ -134,6 +137,14 @@ type reactionMsg struct {
 	T     string `json:"t"`
 	Seat  int    `json:"seat"`
 	Emoji string `json:"emoji"`
+}
+
+// invitedMsg answers an invite: result is "" when it was delivered,
+// otherwise a reason (friend_offline, invite_too_soon, ...).
+type invitedMsg struct {
+	T      string `json:"t"`
+	Friend string `json:"friend"`
+	Result string `json:"result"`
 }
 
 type errorMsg struct {

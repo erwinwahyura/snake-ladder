@@ -155,7 +155,7 @@ func (r *Room) botThink() time.Duration {
 // publishListing updates the room's public entry. A table is listed only
 // while it is public, not mid-game, and has a seat a person could take.
 func (r *Room) publishListing() {
-	if !r.public || r.phase == PhasePlaying {
+	if !r.public || r.delisted || r.phase == PhasePlaying {
 		r.listing.Store(nil)
 		return
 	}

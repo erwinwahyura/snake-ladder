@@ -19,17 +19,25 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
-// Signer signs and checks player IDs with a server secret.
-type Signer struct{ secret []byte }
+// Signer signs and checks player IDs with a server secret, and keeps the
+// list of IDs their owners have retired ("Ganti kunci").
+type Signer struct {
+	secret []byte
+
+	mu          sync.Mutex
+	revoked     map[string]bool
+	revokedPath string // empty: in memory only
+}
 
 // New returns a signer for a given secret (at least 32 bytes).
 func New(secret []byte) (*Signer, error) {
 	if len(secret) < 32 {
 		return nil, errors.New("identity: secret must be at least 32 bytes")
 	}
-	return &Signer{secret: append([]byte(nil), secret...)}, nil
+	return &Signer{secret: append([]byte(nil), secret...), revoked: map[string]bool{}}, nil
 }
 
 // LoadOrCreate reads the secret from path, creating a random one the first
@@ -50,7 +58,42 @@ func LoadOrCreate(path string) (*Signer, error) {
 	} else if err != nil {
 		return nil, err
 	}
-	return New(b)
+	sg, err := New(b)
+	if err != nil {
+		return nil, err
+	}
+	// Retired IDs live next to the key, one per line.
+	sg.revokedPath = path + ".revoked"
+	if data, err := os.ReadFile(sg.revokedPath); err == nil {
+		for _, id := range strings.Fields(string(data)) {
+			sg.revoked[id] = true
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return nil, err
+	}
+	return sg, nil
+}
+
+// Revoke retires an ID: its token stops verifying, for good.
+func (s *Signer) Revoke(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.revoked[id] {
+		return nil
+	}
+	s.revoked[id] = true
+	if s.revokedPath == "" {
+		return nil
+	}
+	f, err := os.OpenFile(s.revokedPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString(id + "\n"); err != nil {
+		f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 // Issue makes a new signed player ID.
@@ -67,6 +110,12 @@ func (s *Signer) Verify(token string) (string, bool) {
 		return "", false
 	}
 	if !hmac.Equal([]byte(sig), []byte(s.sig(id))) {
+		return "", false
+	}
+	s.mu.Lock()
+	dead := s.revoked[id]
+	s.mu.Unlock()
+	if dead {
 		return "", false
 	}
 	return id, true

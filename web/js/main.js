@@ -2,6 +2,7 @@
 import { World, SEAT_COLORS } from './scene.js';
 import { Connection } from './net.js';
 import { sfx, unlock, isMuted, setMuted } from './audio.js';
+import { Presence } from './presence.js';
 
 const REACTIONS = ['😂', '😱', '🔥', '👏', '😭', '🐍'];
 
@@ -13,29 +14,26 @@ const store = {
 };
 
 // Guest identity: a server-signed ID kept in this browser, so the
-// leaderboard survives renames without any sign-up. ?akun=<id> brings an
-// identity over from another device (see "Pindah ke HP lain").
+// leaderboard and Teman main survive renames without any sign-up.
+// "Pindah ke HP lain" moves it with a one-time code.
 function playerId() {
   return store.get('ut.pid') || '';
 }
 
 async function ensureIdentity() {
-  const params = new URLSearchParams(location.search);
-  const moved = params.get('akun');
-  if (moved) {
-    store.set('ut.pid', moved);
-    params.delete('akun');
-    history.replaceState(null, '', location.pathname + (params.toString() ? `?${params}` : ''));
-  }
   try {
     const res = await fetch(`/api/identity?pid=${encodeURIComponent(playerId())}`);
     const { pid } = await res.json();
-    if (moved && pid !== moved) showLobbyError('Tautan akun itu tidak valid, jadi kamu memakai catatan baru.');
-    else if (moved) showLobbyError('Catatanmu sudah dipindahkan ke perangkat ini.');
     store.set('ut.pid', pid);
   } catch {
     /* offline: keep whatever we have; games just won't be recorded */
   }
+}
+
+function setIdentity(pid) {
+  store.set('ut.pid', pid);
+  presence.restart();
+  loadFriends();
 }
 
 // Seats in use for a table size; two players sit opposite each other.
@@ -71,6 +69,7 @@ world.setIdle(true);
 if (new URLSearchParams(location.search).has('debug')) window.__ut = { world, app };
 
 const conn = new Connection({ onMessage, onStatus });
+const presence = new Presence({ getPid: playerId, onInvite: showInvite });
 
 // --- lobby ---
 
@@ -131,6 +130,7 @@ function enterRoom(code) {
 }
 
 await ensureIdentity();
+presence.open();
 
 // Coming back to a room link we already hold a seat in: rejoin straight away.
 if (urlCode && store.get(`ut.token.${urlCode.toUpperCase()}`) && myName()) {
@@ -166,7 +166,17 @@ function renderRooms(rooms) {
       join.addEventListener('click', () => {
         if (requireName()) enterRoom(r.code);
       });
-      li.append(info, join);
+      const report = Object.assign(document.createElement('button'), { className: 'link small', textContent: 'Laporkan', type: 'button' });
+      report.setAttribute('aria-label', `Laporkan meja ${r.host}`);
+      report.addEventListener('click', async () => {
+        if (!confirm(`Laporkan meja ${r.host}? Meja yang dilaporkan dua orang tidak ditampilkan lagi di Meja terbuka.`)) return;
+        await fetch(`/api/rooms/${r.code}/report?pid=${encodeURIComponent(playerId())}`, { method: 'POST' }).catch(() => {});
+        report.textContent = 'Dilaporkan';
+        report.disabled = true;
+      });
+      const actions = Object.assign(document.createElement('div'), { className: 'row-actions' });
+      actions.append(report, join);
+      li.append(info, actions);
       return li;
     }),
   );
@@ -176,6 +186,141 @@ $('refresh-rooms').addEventListener('click', loadRooms);
 loadRooms();
 setInterval(loadRooms, 5000);
 
+// --- teman main ---
+
+const STATUS_TEXT = { online: 'online', playing: 'sedang main', '': 'offline' };
+let friends = [];
+
+async function loadFriends() {
+  try {
+    ({ friends } = await (await fetch(`/api/friends?pid=${encodeURIComponent(playerId())}`)).json());
+  } catch {
+    friends = [];
+  }
+  renderFriends();
+  if ($('invite-dialog').open) renderInviteList();
+}
+
+function friendInfo(f) {
+  const info = document.createElement('div');
+  const dot = Object.assign(document.createElement('span'), { className: `status-dot ${f.status}` });
+  info.append(dot, Object.assign(document.createElement('b'), { textContent: f.name }));
+  info.append(Object.assign(document.createElement('span'), { className: 'meta', textContent: STATUS_TEXT[f.status] ?? 'offline' }));
+  return info;
+}
+
+function renderFriends() {
+  $('friend-empty').hidden = friends.length > 0;
+  $('friend-list').replaceChildren(
+    ...friends.slice(0, 8).map((f) => {
+      const li = document.createElement('li');
+      const actions = Object.assign(document.createElement('div'), { className: 'row-actions' });
+      const remove = Object.assign(document.createElement('button'), { className: 'link small', textContent: 'Hapus', type: 'button' });
+      remove.setAttribute('aria-label', `Hapus ${f.name} dari teman main`);
+      remove.addEventListener('click', async () => {
+        await fetch(`/api/friends/remove?pid=${encodeURIComponent(playerId())}&id=${encodeURIComponent(f.id)}`, { method: 'POST' }).catch(() => {});
+        loadFriends();
+      });
+      actions.append(remove);
+      // A friend waiting at a public table can be followed straight in.
+      if (f.table) {
+        const follow = Object.assign(document.createElement('button'), { className: 'btn small', textContent: 'Susul', type: 'button' });
+        follow.setAttribute('aria-label', `Susul ${f.name} ke mejanya`);
+        follow.addEventListener('click', () => {
+          if (requireName()) enterRoom(f.table);
+        });
+        actions.append(follow);
+      }
+      li.append(friendInfo(f), actions);
+      return li;
+    }),
+  );
+}
+
+loadFriends();
+setInterval(() => {
+  if (!$('lobby').hidden || $('invite-dialog').open) loadFriends();
+}, 5000);
+
+// Invites: a friend's invite lands as a toast, wherever you are.
+let pendingInvite = null;
+function showInvite(msg) {
+  if (msg.room === app.room) return; // already at that table
+  pendingInvite = msg;
+  $('invite-text').textContent = `${msg.from} mengajak kamu main di meja ${msg.room}.`;
+  $('invite-join').textContent = app.room ? 'Pindah ke sana' : 'Gabung';
+  $('invite-toast').hidden = false;
+  sfx.turn();
+  navigator.vibrate?.(60);
+  clearTimeout(showInvite.timer);
+  showInvite.timer = setTimeout(() => ($('invite-toast').hidden = true), 30000);
+}
+$('invite-dismiss').addEventListener('click', () => ($('invite-toast').hidden = true));
+$('invite-join').addEventListener('click', () => {
+  $('invite-toast').hidden = true;
+  if (!pendingInvite) return;
+  if (!myName()) $('name').value = 'Pemain';
+  if (app.room) {
+    conn.send({ t: 'leave' });
+    backToLobby();
+  }
+  enterRoom(pendingInvite.room);
+});
+
+function renderInviteList() {
+  const list = $('invite-list');
+  if (!friends.length) {
+    list.replaceChildren(Object.assign(document.createElement('li'), { textContent: 'Belum ada teman main. Kirim tautan meja lewat WhatsApp dulu, nanti mereka muncul di sini.' }));
+    return;
+  }
+  const here = new Set((app.state?.players || []).map((p) => p.name));
+  list.replaceChildren(
+    ...friends.map((f) => {
+      const li = document.createElement('li');
+      li.dataset.id = f.id;
+      const btn = Object.assign(document.createElement('button'), { className: 'btn small', type: 'button' });
+      if (here.has(f.name) && f.status === 'playing') {
+        btn.textContent = 'Sudah di sini';
+        btn.disabled = true;
+      } else if (f.status !== 'online') {
+        btn.textContent = f.status === 'playing' ? 'Sedang main' : 'Offline';
+        btn.disabled = true;
+      } else {
+        btn.textContent = 'Ajak';
+        btn.addEventListener('click', () => {
+          btn.disabled = true;
+          btn.textContent = 'Mengirim…';
+          conn.send({ t: 'invite', friend: f.id });
+        });
+      }
+      li.append(friendInfo(f), btn);
+      return li;
+    }),
+  );
+}
+
+function onInvited(msg) {
+  const btn = document.querySelector(`#invite-list li[data-id="${CSS.escape(msg.friend)}"] button`);
+  const text = {
+    '': 'Terkirim',
+    friend_offline: 'Sudah offline',
+    invite_too_soon: 'Tunggu sebentar',
+    invite_rate_limit: 'Terlalu banyak ajakan',
+    not_friend: 'Bukan teman main',
+  }[msg.result] ?? 'Gagal';
+  if (btn) {
+    btn.textContent = text;
+    btn.disabled = true;
+  }
+}
+
+$('invite-open').addEventListener('click', async () => {
+  $('invite-dialog').showModal();
+  renderInviteList();
+  await loadFriends();
+});
+$('invite-close').addEventListener('click', () => $('invite-dialog').close());
+
 // --- server messages ---
 
 function onMessage(msg) {
@@ -184,6 +329,7 @@ function onMessage(msg) {
     case 'state': return onState(msg);
     case 'moved': return onMoved(msg);
     case 'reaction': return onReaction(msg);
+    case 'invited': return onInvited(msg);
     case 'error': return onError(msg);
   }
 }
@@ -344,6 +490,7 @@ function backToLobby() {
   world.setTurn(-1);
   world.setIdle(true);
   loadRooms();
+  loadFriends();
 }
 
 // --- rendering ---
@@ -475,6 +622,7 @@ function renderWaiting(st) {
   $('six-again').checked = st.rules.sixAgain;
   $('start').hidden = !host;
   $('leave').hidden = app.seat < 0;
+  $('invite-open').hidden = app.seat < 0;
 }
 
 function myTurn() {
@@ -636,13 +784,48 @@ function row(cells) {
   return tr;
 }
 
-$('copy-account').addEventListener('click', async () => {
+// Moving to another device: a 6-letter code, 10 minutes, one use.
+const transferMsg = (t) => ($('transfer-msg').textContent = t);
+$('make-code').addEventListener('click', async () => {
   try {
-    await navigator.clipboard.writeText(`${location.origin}/?akun=${encodeURIComponent(playerId())}`);
-    $('copy-account').textContent = 'Tersalin';
-    setTimeout(() => ($('copy-account').textContent = 'Salin tautan akunku'), 1500);
+    const res = await fetch(`/api/identity/transfer?pid=${encodeURIComponent(playerId())}`, { method: 'POST' });
+    if (!res.ok) throw new Error();
+    const { code } = await res.json();
+    $('my-code').textContent = code;
+    $('my-code').hidden = false;
+    transferMsg('Masukkan kode ini di perangkat baru dalam 10 menit.');
   } catch {
-    /* clipboard blocked */
+    transferMsg('Kode tidak bisa dibuat. Coba lagi.');
+  }
+});
+$('claim-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const code = $('claim-code').value.trim().toUpperCase();
+  if (!/^[A-Z0-9]{6}$/.test(code)) {
+    transferMsg('Kode pindah terdiri dari 6 huruf atau angka.');
+    return;
+  }
+  try {
+    const res = await fetch(`/api/identity/claim?code=${code}`, { method: 'POST' });
+    if (res.status === 429) return transferMsg('Terlalu banyak percobaan. Coba lagi beberapa menit lagi.');
+    if (!res.ok) return transferMsg('Kode tidak ditemukan atau sudah kedaluwarsa. Buat kode baru di perangkat lama.');
+    setIdentity((await res.json()).pid);
+    $('claim-code').value = '';
+    transferMsg('Berhasil. Catatan dan teman mainmu sekarang ada di perangkat ini.');
+    openLeaderboard();
+  } catch {
+    transferMsg('Tidak bisa terhubung. Coba lagi.');
+  }
+});
+$('rotate-key').addEventListener('click', async () => {
+  if (!confirm('Ganti kunci? Kunci lama berhenti berlaku di semua perangkat. Catatan dan teman mainmu tetap.')) return;
+  try {
+    const res = await fetch(`/api/identity/rotate?pid=${encodeURIComponent(playerId())}`, { method: 'POST' });
+    if (!res.ok) throw new Error();
+    setIdentity((await res.json()).pid);
+    transferMsg('Kunci sudah diganti. Perangkat lain perlu kode pindah baru.');
+  } catch {
+    transferMsg('Kunci tidak bisa diganti. Coba lagi.');
   }
 });
 

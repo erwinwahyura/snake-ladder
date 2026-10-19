@@ -17,7 +17,7 @@ Open two browser windows to play against yourself. A solo game works too, but it
 | Env | Flag | Default | |
 |---|---|---|---|
 | `ADDR` | `-addr` | `:8080` | listen address |
-| `DATA_DIR` | `-data` | `./data` | `leaderboard.json` and `identity.key` (back up both) |
+| `DATA_DIR` | `-data` | `./data` | `leaderboard.json`, `friends.json`, `identity.key` and `identity.key.revoked` (back up all four) |
 | `ORIGINS` | `-origins` | | extra allowed WebSocket origins, comma-separated |
 
 ## Deploy (Hetzner + Caddy + Ansible)
@@ -37,7 +37,9 @@ Open two browser windows to play against yourself. A solo game works too, but it
 - The server rolls the dice. You have 20 seconds to roll before it rolls for you.
 - If your phone sleeps, reopen the link to get your seat back. While you're away, your turns are rolled for you.
 - Points: the winner gets 10, then 6 / 3 / 1 at a 4-player table. Only games with two or more people count. Wins against bots are kept separately.
-- There's no sign-up. Your record lives in this browser. "Pindah ke HP lain" in the leaderboard moves it to another device.
+- People you play with become **Teman main**. The lobby shows who's online. Invite them from the waiting screen with "Ajak teman main", or "Susul" them to their public table.
+- There's no sign-up. Your record lives in this browser. "Pindah ke HP lain" in the leaderboard gives a one-time code for another device, and "Ganti kunci" retires a leaked key.
+- Rude names are replaced automatically. Public tables can be reported, and two reports hide one.
 - Tap an emoji to react. Use "Bisukan" to mute the sound.
 - On a phone, "Add to Home screen" installs it like an app.
 
