@@ -113,6 +113,22 @@ h2 { font-size: 1.5rem; }
 .players li.empty .who { color: var(--ink-soft); font-weight: 400; }
 .players li.empty .pawn-dot { opacity: .35; }
 .transfer { margin-top: 6px; }
+.transfer-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 6px 0; }
+.transfer-row input { font: inherit; padding: .3em .6em .2em; border: 2px solid var(--ink); border-radius: 8px; text-transform: uppercase; letter-spacing: .12em; width: 10ch; }
+.invite-open { justify-self: start; }
+.status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; border: 1.5px solid var(--ink); background: #cfc6b0; vertical-align: middle; }
+.status-dot.online { background: var(--hijau); }
+.status-dot.playing { background: var(--kuning); }
+.row-actions { display: flex; gap: 6px; align-items: center; }
+.link.small { font-size: .85rem; }
+.toast {
+  position: fixed; left: 50%; top: calc(var(--gutter) + env(safe-area-inset-top)); transform: translateX(-50%);
+  width: min(420px, calc(100vw - 2 * var(--gutter))); padding: 12px 14px; z-index: 10;
+  animation: drop .25s ease-out;
+}
+.toast p { margin: 0 0 6px; font-weight: 600; }
+.toast .actions { margin-top: 0; }
+@keyframes drop { from { transform: translate(-50%, -20px); opacity: 0; } }
 .transfer summary { cursor: pointer; font-weight: 600; }
 .transfer p { margin: 6px 0; }
 .join { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: end; }
@@ -230,5 +246,6 @@ h2 { font-size: 1.5rem; }
 @media (prefers-reduced-motion: reduce) {
   .roll:not(:disabled) { animation: none; }
   .my-reaction.show { animation-duration: .01s; }
+  .toast { animation: none; }
   .btn { transition: none; }
 }

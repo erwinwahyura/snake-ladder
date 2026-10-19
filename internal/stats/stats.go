@@ -209,6 +209,39 @@ func (s *Store) Get(id string) (Record, bool) {
 	return *r, true
 }
 
+// Move hands one player's record to a new ID (after "Ganti kunci"),
+// merging into anything already under the new ID.
+func (s *Store) Move(from, to string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	old, ok := s.recs[from]
+	if !ok || from == to {
+		return nil
+	}
+	n := s.recs[to]
+	if n == nil {
+		n = &Record{ID: to}
+		s.recs[to] = n
+	}
+	n.Name = old.Name
+	n.Points += old.Points
+	n.Games += old.Games
+	n.Wins += old.Wins
+	n.Rolls += old.Rolls
+	n.Ladders += old.Ladders
+	n.Snakes += old.Snakes
+	n.BotGames += old.BotGames
+	n.BotWins += old.BotWins
+	if old.BestRolls != 0 && (n.BestRolls == 0 || old.BestRolls < n.BestRolls) {
+		n.BestRolls = old.BestRolls
+	}
+	if old.LastPlayed.After(n.LastPlayed) {
+		n.LastPlayed = old.LastPlayed
+	}
+	delete(s.recs, from)
+	return s.save()
+}
+
 // save writes the whole file atomically: temp file, fsync, rename.
 // Called with s.mu held.
 func (s *Store) save() error {

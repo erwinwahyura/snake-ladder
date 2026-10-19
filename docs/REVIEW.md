@@ -4,6 +4,44 @@ Each loop ends with an honest pass over the build. New loops go on top.
 
 ---
 
+## Loop 5 — 2026-10-19
+
+### What I checked
+- **`go test -race ./...`** across 7 packages covers:
+  - Friends store: mutual, one-way remove, move, persistence, cap.
+  - Presence: online, playing, joinable table, offline after the socket closes.
+  - Invites: delivered; refused when too soon, offline or not a friend; rate cap.
+  - Rooms: notify seat changes and who met, relay invites, refuse invites mid-game, delist after 2 distinct reports (own and duplicate reports ignored), replace rude names.
+  - Identity: transfer codes are one-time, expire and replace each other; revocation survives a restart.
+  - HTTP: transfer, claim (case-insensitive), rotate (record and friends follow, old key dead), friends list, report errors.
+- **Browser run with three browsers:**
+  1. Budi and Sari play.
+  2. Both go back to the lobby and see each other online.
+  3. Budi opens a new table and invites Sari.
+  4. Sari's phone shows the toast, and **Gabung** seats her.
+  5. Budi makes a transfer code, and a third browser claims it: same ID, with Sari in its friend list.
+  6. No console errors.
+
+### Good
+- **Inviting is one tap,** and only to people you've already played with. No friend requests, search or spam surface.
+- **The device-transfer secret is short-lived:** 10 minutes, one use. A leaked key can be retired with "Ganti kunci" without losing anything.
+- **Reports need two different people**, so one grumpy player can't hide a table.
+- **Bots feel a bit alive** without adding noise.
+
+### Not good yet
+- **Rate limiting is per IP in one process.** That's fine on one box; it would need a shared store if the server ever runs on several machines.
+- **Presence is in memory.** A deploy shows everyone as offline until their app reconnects, which takes seconds thanks to the backoff.
+- **The name filter is a word list.** It will miss creative spellings, so reports are the backstop. Names *inside* private tables are also filtered, which is a little stricter than needed.
+- **No optional login yet.** Losing your browser data without a transfer code still loses your record. Google or passkey sign-in, linked to the guest ID, remains the real fix (it needs an OAuth client set up on your side).
+- **Real-device play-test still pending** (from loop 3).
+
+### Next
+1. Play-test on two Android phones over mobile data (timer, animation speed, camera).
+2. Optional Google / passkey sign-in linked to the guest ID.
+3. Service worker with a friendly offline screen.
+
+---
+
 ## Loop 4 — 2026-10-19
 
 ### What I checked

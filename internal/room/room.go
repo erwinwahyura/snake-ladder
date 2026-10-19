@@ -10,6 +10,7 @@ import (
 	"unicode"
 
 	"github.com/erwinwahyura/snake-ladder/internal/game"
+	"github.com/erwinwahyura/snake-ladder/internal/names"
 	"github.com/erwinwahyura/snake-ladder/internal/stats"
 )
 
@@ -39,6 +40,8 @@ type Room struct {
 	turnTimer  *time.Timer
 	lastActive time.Time
 	created    time.Time
+	reports    map[string]bool // player IDs who reported this public table
+	delisted   bool            // reported enough to leave the public list
 
 	// listing is the room's entry in the public list, or nil. It is the
 	// only room state read from other goroutines (by the hub).
@@ -63,6 +66,8 @@ type joinEv struct {
 }
 
 type leaveEv struct{ c *client }
+
+type reportEv struct{ id string }
 
 // funcEv runs a function on the room goroutine (used by tests).
 type funcEv func()
@@ -122,6 +127,7 @@ func (r *Room) run() {
 		r.turnTimer.Stop()
 		for _, s := range r.seats {
 			if s != nil && s.client != nil {
+				r.markSeated(s, false)
 				r.detach(s.client)
 			}
 		}
@@ -146,6 +152,8 @@ func (r *Room) run() {
 				r.onMessage(ev.c, ev.msg)
 			case funcEv:
 				ev()
+			case reportEv:
+				r.onReport(ev.id)
 			}
 		case <-r.turnTimer.C:
 			r.onTurnTimeout()
@@ -177,6 +185,7 @@ func (r *Room) onJoin(ev joinEv) {
 				if n := cleanName(ev.name, i); strings.TrimSpace(ev.name) != "" {
 					s.name = n
 				}
+				r.markSeated(s, true)
 				r.welcome(c, s.token)
 				r.rescheduleTurn()
 				r.broadcastState()
@@ -192,6 +201,7 @@ func (r *Room) onJoin(ev joinEv) {
 				s.host = true
 			}
 			r.seats[i], c.seat = s, i
+			r.markSeated(s, true)
 			r.welcome(c, s.token)
 			r.broadcastState()
 			return
@@ -219,6 +229,7 @@ func (r *Room) onDisconnect(c *client) {
 	}
 	s := r.seats[c.seat]
 	s.client = nil
+	r.markSeated(s, false)
 	r.detach(c)
 	if s.host {
 		r.passHost(c.seat)
@@ -248,6 +259,8 @@ func (r *Room) onMessage(c *client, m inMsg) {
 		r.onConfig(c, m.Size, m.Public)
 	case msgBot:
 		r.onBot(c, m.Action, m.Seat)
+	case msgInvite:
+		r.onInvite(c, m.Friend)
 	default:
 		r.sendErr(c, "bad_message")
 	}
@@ -274,6 +287,15 @@ func (r *Room) onStart(c *client) {
 		}
 	}
 	r.game = game.New(r.cfg.Board, r.rules, order)
+	if r.cfg.Social != nil {
+		met := map[string]string{}
+		for _, i := range order {
+			if s := r.seats[i]; !s.bot && s.pid != "" {
+				met[s.pid] = s.name
+			}
+		}
+		r.cfg.Social.Met(met)
+	}
 	r.phase = PhasePlaying
 	r.busyUntil = time.Now()
 	r.scheduleTurn()
@@ -354,6 +376,7 @@ func (r *Room) onLeave(c *client) {
 	}
 	i := c.seat
 	wasHost := r.seats[i].host
+	r.markSeated(r.seats[i], false)
 	r.seats[i] = nil
 	c.seat = -1
 	r.spectators[c] = struct{}{}
@@ -387,6 +410,7 @@ func (r *Room) roll(auto bool) {
 	anim := r.animFor(m)
 	r.busyUntil = time.Now().Add(anim)
 	r.broadcast(movedMsg{T: "moved", Move: m, AnimMs: anim.Milliseconds(), Auto: auto})
+	r.botReact(m, anim)
 	if m.Won {
 		r.phase = PhaseFinished
 		r.turnTimer.Stop()
@@ -687,6 +711,7 @@ func (r *Room) sendRaw(c *client, b []byte) {
 		slog.Warn("dropping slow client", "room", r.code, "seat", c.seat)
 		if c.seat >= 0 && r.seats[c.seat] != nil && r.seats[c.seat].client == c {
 			r.seats[c.seat].client = nil
+			r.markSeated(r.seats[c.seat], false)
 		}
 		delete(r.spectators, c)
 		r.detach(c)
@@ -712,7 +737,7 @@ func cleanName(name string, seat int) string {
 	if rs := []rune(name); len(rs) > 16 {
 		name = string(rs[:16])
 	}
-	if name == "" {
+	if name == "" || names.Offensive(name) {
 		name = "Pemain " + string(rune('1'+seat))
 	}
 	return name

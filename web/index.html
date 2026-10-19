@@ -44,6 +44,11 @@
       <ul id="room-list" class="room-list"></ul>
       <p id="room-empty" class="muted" hidden>Belum ada meja terbuka. Buat meja lalu pilih Publik supaya orang lain bisa ikut.</p>
     </section>
+    <section class="open-tables" aria-labelledby="friends-title">
+      <div class="open-head"><h2 id="friends-title">Teman main</h2></div>
+      <ul id="friend-list" class="room-list"></ul>
+      <p id="friend-empty" class="muted" hidden>Orang yang pernah satu meja denganmu muncul di sini, lengkap dengan siapa yang sedang online.</p>
+    </section>
     <button id="open-board" class="link">Lihat papan juara</button>
   </main>
 
@@ -68,6 +73,7 @@
     <section id="waiting" class="sheet waiting" hidden>
       <h2>Menunggu pemain</h2>
       <p id="waiting-hint" class="muted"></p>
+      <button id="invite-open" class="btn small invite-open" type="button">Ajak teman main</button>
       <fieldset id="setup" class="rules">
         <legend>Meja</legend>
         <div class="seg" role="radiogroup" aria-label="Jumlah pemain">
@@ -118,6 +124,21 @@
     </div>
   </dialog>
 
+  <dialog id="invite-dialog" class="sheet modal">
+    <h2>Ajak teman main</h2>
+    <p class="muted">Teman yang sedang membuka Ular Tangga dapat ajakan langsung. Yang lain bisa kamu kirimi tautan meja.</p>
+    <ul id="invite-list" class="room-list"></ul>
+    <div class="actions"><button id="invite-close" class="btn">Tutup</button></div>
+  </dialog>
+
+  <div id="invite-toast" class="sheet toast" role="alert" hidden>
+    <p id="invite-text"></p>
+    <div class="actions">
+      <button id="invite-join" class="btn primary small" type="button">Gabung</button>
+      <button id="invite-dismiss" class="btn small" type="button">Nanti</button>
+    </div>
+  </div>
+
   <dialog id="leaderboard" class="sheet modal">
     <h2>Papan juara</h2>
     <p class="muted">Poin dari tiap permainan dengan minimal dua orang: juara 1 dapat 10, lalu 6, 3 dan 1 (meja 4 orang). Lawan bot dicatat terpisah.</p>
@@ -128,8 +149,18 @@
     <p id="my-bot-record" class="muted" hidden></p>
     <details class="transfer">
       <summary>Pindah ke HP atau browser lain</summary>
-      <p class="muted">Catatanmu tersimpan di browser ini tanpa akun. Buka tautan ini di perangkat lain untuk membawa catatanmu. Jangan dibagikan ke orang lain.</p>
-      <button id="copy-account" class="btn small" type="button">Salin tautan akunku</button>
+      <p class="muted">Catatan dan teman mainmu tersimpan di browser ini tanpa akun. Buat kode di perangkat lama, lalu masukkan di perangkat baru. Kode berlaku 10 menit dan hanya sekali pakai.</p>
+      <div class="transfer-row">
+        <button id="make-code" class="btn small" type="button">Buat kode pindah</button>
+        <b id="my-code" class="code" hidden></b>
+      </div>
+      <form id="claim-form" class="transfer-row">
+        <input id="claim-code" maxlength="6" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="Kode dari HP lama" aria-label="Kode pindah">
+        <button class="btn small">Pakai kode</button>
+      </form>
+      <p class="muted">Kode atau tautan akunmu pernah terlihat orang lain? Ganti kunci: catatan dan temanmu tetap, kunci lama berhenti berlaku.</p>
+      <button id="rotate-key" class="btn small" type="button">Ganti kunci</button>
+      <p id="transfer-msg" class="muted" role="status"></p>
     </details>
     <div class="actions"><button id="leaderboard-close" class="btn">Tutup</button></div>
   </dialog>

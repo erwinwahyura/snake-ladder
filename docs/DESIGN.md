@@ -1,6 +1,6 @@
 # Design
 
-Last updated: 2026-10-19 (loop 4)
+Last updated: 2026-10-19 (loop 5)
 
 ## Shape
 
@@ -18,7 +18,9 @@ cmd/server/        main: flags/env, routes, graceful shutdown, security headers
 internal/game/     pure rules: board, house rules, Apply(), Game.Roll(), per-seat stats
 internal/room/     Hub (room registry), Room (one goroutine per table), WebSocket conn
 internal/stats/    leaderboard: JSON file, atomic writes, ranking by points, bot games apart
-internal/identity/ server-signed guest player IDs (HMAC), key in DATA_DIR/identity.key
+internal/identity/ server-signed guest player IDs (HMAC), revocation, one-time transfer codes
+internal/social/   Teman main (friends.json), presence socket, invites
+internal/names/    name filter for rude words
 web/               index.html, style.css, manifest.webmanifest, icons/, js/{main,scene,net,textures,audio}.js, vendor/{three,fonts}
 scripts/           browser end-to-end test (Playwright)
 deploy/            systemd unit, Caddy block, Ansible playbook
@@ -80,13 +82,33 @@ anim = dice 1100ms + steps × 260ms + (snake|ladder ? 1000ms : 0) + settle 400ms
 | 1 plus bots | `botGames` / `botWins` only, off the ranking |
 | 1 alone | Nothing |
 
+### Friends, presence and invites
+
+```
+browser ──/ws/presence──► social.Service ◄── room: Seated(id, code, on), Met(players)
+                              │  Friends (friends.json)
+                              └─► invite toast on the friend's presence socket
+```
+
+- **Friends.** When a game starts, the room passes `Met()` the people at the table (ID → name). Every pair becomes mutual friends. Each list keeps the 50 most recent.
+- **Presence.** Each browser keeps one `/ws/presence?pid=` socket open, in the lobby and at a table. It only receives.
+- **Status.** A friend is `playing` if they're seated anywhere, `online` if they have a presence socket, and offline otherwise. `table` is set only when that table is in the public list, which makes "Susul" possible without exposing private tables.
+- **Invites.** An invite travels over the game socket to the room, then to `Service.Invite()`. That checks friendship and rate limits (20 s per friend, 10 per minute) and pushes `{t:"invite", from, room}` to every presence socket the friend has open.
+- **Locking.** The social service never holds its lock while asking the hub whether a table is listed, so there is no lock-order cycle with room code.
+
+### Reports
+
+`POST /api/rooms/{code}/report?pid=` is passed to the room. Two distinct reporters who aren't seated at the table set `delisted`, which keeps it out of `Hub.Public()` for good.
+
 ### Identity
 
 | Thing | Where | Purpose |
 |---|---|---|
 | Room code | URL `?meja=K7QX` | Find the table. 4 characters with no look-alikes. |
 | Seat token | `localStorage ut.token.<room>` | Reclaim *this* seat after a reconnect. Server-generated, 130 bits. |
-| Player ID | `localStorage ut.pid` | `<id>.<hmac>`, issued by `GET /api/identity` and checked on `/ws` and the leaderboard. The leaderboard stores only `<id>`. `?akun=<pid>` moves it to another device. |
+| Player ID | `localStorage ut.pid` | `<id>.<hmac>`, issued by `GET /api/identity` and checked on `/ws`, `/ws/presence` and every API. The leaderboard and friends store only `<id>`. |
+| Transfer code | shown on screen | `POST /api/identity/transfer` creates a 6-character code (10 min, one use). `POST /api/identity/claim?code=` returns the player ID, with a per-IP limit. |
+| Retired IDs | `identity.key.revoked` | `POST /api/identity/rotate` issues a new ID, moves the record and friends, and revokes the old ID. |
 
 ## Protocol
 
@@ -102,10 +124,12 @@ JSON text frames, each with a `"t"` type field.
 | C→S | `kick` `{seat}` | Host only, outside a game, and only for a disconnected person. |
 | C→S | `config` `{size?, public?}` | Host only, outside a game. Size is 2–4. |
 | C→S | `bot` `{action:"add"\|"remove"\|"fill", seat?}` | Host only, outside a game. |
+| C→S | `invite` `{friend}` | Seated player, outside a game. Answered with `invited`. |
 | S→C | `welcome` | `seat` (−1 = spectator), `token`, `board`, `timing` |
 | S→C | `state` | Full snapshot after every change: phase, rules, players, turn, winner, deadline, server `now`, results, ranked |
 | S→C | `moved` | `move{seat,dice,from,landed,to,kind,bounced,stuck,again,won}`, `animMs`, `auto`. Always followed by a `state`. |
-| S→C | `reaction` | `{seat, emoji}` |
+| S→C | `reaction` | `{seat, emoji}`, sent by people and sometimes by bots |
+| S→C | `invited` | `{friend, result}`: `""` means delivered, otherwise `friend_offline`, `invite_too_soon`, `invite_rate_limit` or `not_friend` |
 | S→C | `error` | `code`: `not_seated`, `bad_reaction`, `bad_seat`, `still_connected`, `bad_size`, `seats_taken`, `no_free_seat`, `room_not_found`, `server_full`, `not_host`, `not_your_turn`, `still_moving`, `already_playing`, `bad_rules`, `bad_message` |
 
 The connection URL is `/ws?room=CODE&name=NAME&token=TOKEN&pid=PLAYERID`. An empty `room` creates a new one.

@@ -1,5 +1,23 @@
 # Changelog
 
+## Loop 5 — 2026-10-19
+
+### Added
+- **Teman main.** People who sit down to a game together become each other's "teman main", up to 50, with the most recently played kept. The lobby lists them with status: 🟢 online, 🟡 playing, or offline. A friend waiting at a public table can be followed in with **Susul**. **Hapus** removes someone from your list only.
+- **Presence socket** (`/ws/presence`). While the app is open you show as online and can receive invites anywhere: in the lobby or at another table.
+- **Invites.** "Ajak teman main" on the waiting screen lists your friends, and **Ajak** sends an invite to online friends. It arrives as a toast with **Gabung**, or **Pindah ke sana** if you are already at a table. Limits: friends only, at most one invite per friend every 20 s, and 10 per minute.
+- **Name filter** (`internal/names`). Indonesian and English swear words are caught, including l33t spelling, repeated letters and spaced-out letters, while ordinary names such as "Santai" or "Pantai" are left alone. A caught name is shown as "Pemain N".
+- **Report a public table.** Each entry in Meja terbuka has **Laporkan**. Reports from two different players take the table off the list; it can still be joined by code. Reporting your own table does nothing.
+- **Safer device transfer.** The permanent `?akun=` link is replaced by a **6-character code**, valid for 10 minutes and usable once. Claiming is rate-limited to 20 attempts per 10 minutes per IP.
+- **Ganti kunci.** Issues a new ID that keeps your record and friends, and retires the old one everywhere (`DATA_DIR/identity.key.revoked`).
+- **Bot reactions.** Bots sometimes react once a move has played out: 🐍 or 😭 when they're eaten, 🔥 on a ladder, 😂 when a person is eaten.
+
+### Fixed
+- **Flaky identity test.** Its "tampered token" case could pick the same first character as the real token. It is now deterministic, checked over 50 runs.
+
+### Removed
+- **`?akun=` account links** (replaced by transfer codes).
+
 ## Loop 4 — 2026-10-19
 
 ### Added

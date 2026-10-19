@@ -52,6 +52,16 @@ type Config struct {
 	// Verify turns a client's signed player ID into the stable ID the
 	// leaderboard stores. Nil accepts any well-formed ID (tests).
 	Verify func(token string) (string, bool)
+	// Social learns who sits where and who played together, and relays
+	// invites. Nil turns friends and invites off.
+	Social Social
+}
+
+// Social is what rooms need from the friends/presence service.
+type Social interface {
+	Met(players map[string]string)
+	Seated(id, code string, on bool)
+	Invite(fromID, fromName, toID, code string) string
 }
 
 // ErrTooManyRooms is returned when the hub is at capacity.
@@ -146,6 +156,22 @@ func (h *Hub) Public(limit int) []Listing {
 		out = out[:limit]
 	}
 	return out
+}
+
+// Listed reports whether a table is currently in the public list.
+func (h *Hub) Listed(code string) bool {
+	r := h.Get(code)
+	return r != nil && r.listing.Load() != nil
+}
+
+// Report counts a player's report against a public table. It reports
+// false if the table doesn't exist.
+func (h *Hub) Report(code, reporterID string) bool {
+	r := h.Get(code)
+	if r == nil {
+		return false
+	}
+	return r.post(reportEv{id: reporterID})
 }
 
 func (h *Hub) remove(code string) {

@@ -508,3 +508,117 @@ func TestBotsPlayAndPeopleReplaceThem(t *testing.T) {
 		}
 	}
 }
+
+type fakeSocial struct {
+	mu      sync.Mutex
+	met     []map[string]string
+	seated  map[string]bool // id@code → on
+	invites []string
+}
+
+func (f *fakeSocial) Met(p map[string]string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.met = append(f.met, p)
+}
+
+func (f *fakeSocial) Seated(id, code string, on bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.seated == nil {
+		f.seated = map[string]bool{}
+	}
+	f.seated[id+"@"+code] = on
+}
+
+func (f *fakeSocial) Invite(from, name, to, code string) string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.invites = append(f.invites, from+">"+to+"@"+code)
+	if to == "offline-friend" {
+		return "friend_offline"
+	}
+	return ""
+}
+
+func (f *fakeSocial) isSeated(key string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.seated[key]
+}
+
+func TestSocialHooksInvitesAndReports(t *testing.T) {
+	soc := &fakeSocial{}
+	h := NewHub(Config{Timing: fastTiming(), Dice: (&scriptedDice{}).next, Social: soc})
+	srv := httptest.NewServer(h.Handler(nil))
+	t.Cleanup(func() { h.Close(); srv.Close() })
+
+	a := dial(t, srv, url.Values{"name": {"Budi"}, "pid": {"player-budi"}})
+	code := a.waitFor("welcome", nil)["room"].(string)
+	b := dial(t, srv, url.Values{"room": {code}, "name": {"Sari"}, "pid": {"player-sari"}})
+	b.waitFor("welcome", nil)
+	a.waitFor("state", func(m map[string]any) bool { return len(players(m)) == 2 })
+	if !soc.isSeated("player-budi@"+code) || !soc.isSeated("player-sari@"+code) {
+		t.Fatalf("both should be seated: %v", soc.seated)
+	}
+
+	a.sendMsg(map[string]any{"t": "invite", "friend": "player-joko"})
+	if m := a.waitFor("invited", nil); m["friend"] != "player-joko" || m["result"] != "" {
+		t.Fatalf("invited = %v", m)
+	}
+	a.sendMsg(map[string]any{"t": "invite", "friend": "offline-friend"})
+	if m := a.waitFor("invited", nil); m["result"] != "friend_offline" {
+		t.Fatalf("offline invite = %v", m)
+	}
+
+	// Public table, reported by two strangers: off the list. The host
+	// reporting their own table does nothing.
+	a.sendMsg(map[string]any{"t": "config", "public": true})
+	a.waitFor("state", func(m map[string]any) bool { return m["public"] == true })
+	h.Report(code, "player-budi")
+	h.Report(code, "stranger-1")
+	h.Report(code, "stranger-1") // same person twice counts once
+	sync1 := make(chan struct{})
+	h.Get(code).post(funcEv(func() { close(sync1) }))
+	<-sync1
+	if !h.Listed(code) {
+		t.Fatal("one distinct report must not delist")
+	}
+	h.Report(code, "stranger-2")
+	sync2 := make(chan struct{})
+	h.Get(code).post(funcEv(func() { close(sync2) }))
+	<-sync2
+	if h.Listed(code) {
+		t.Fatal("two distinct reports delist the table")
+	}
+
+	a.sendMsg(map[string]any{"t": "start"})
+	a.waitFor("state", phaseIs(PhasePlaying))
+	soc.mu.Lock()
+	if len(soc.met) != 1 || soc.met[0]["player-budi"] != "Budi" || soc.met[0]["player-sari"] != "Sari" {
+		t.Fatalf("met = %v", soc.met)
+	}
+	soc.mu.Unlock()
+	a.sendMsg(map[string]any{"t": "invite", "friend": "player-joko"})
+	if e := a.waitFor("error", nil); e["code"] != "already_playing" {
+		t.Fatalf("invite mid-game: %v", e)
+	}
+
+	b.conn.Close(websocket.StatusNormalClosure, "")
+	for i := 0; soc.isSeated("player-sari@" + code); i++ {
+		if i > 100 {
+			t.Fatal("Sari should be unseated after disconnecting")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestRudeNamesReplaced(t *testing.T) {
+	srv, _ := newTestServer(t, &scriptedDice{}, nil)
+	a := dial(t, srv, url.Values{"name": {"4nj1ng"}})
+	a.waitFor("welcome", nil)
+	st := a.waitFor("state", nil)
+	if n := players(st)[0]["name"]; n != "Pemain 1" {
+		t.Fatalf("rude name shown as %q", n)
+	}
+}
