@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#1c130d">
+  <meta name="description" content="Main ular tangga bareng teman secara online. Buat meja, bagikan kodenya, lempar dadu.">
+  <title>Ular Tangga</title>
+  <link rel="preload" href="/vendor/fonts/baloo-2-latin-800-normal.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/style.css">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23fff6da' stroke='%231b1a17' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='5' fill='%23d7261e'/%3E%3C/svg%3E">
+  <script type="module" src="/js/main.js"></script>
+</head>
+<body>
+  <canvas id="scene" aria-label="Meja permainan ular tangga dalam 3D"></canvas>
+
+  <!-- Before joining: name, create a table, or join one by code. -->
+  <main id="lobby" class="sheet lobby">
+    <h1 class="title">Ular Tangga</h1>
+    <p class="lede">Buat meja, kirim kodenya ke teman, lalu lempar dadu. Sampai empat pemain.</p>
+    <label class="field">
+      <span>Nama kamu</span>
+      <input id="name" maxlength="16" autocomplete="nickname" placeholder="Misal: Budi" required>
+    </label>
+    <button id="create" class="btn primary">Buat meja baru</button>
+    <form id="join-form" class="join">
+      <label class="field">
+        <span>Punya kode meja?</span>
+        <input id="join-code" maxlength="4" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="K7QX" pattern="[A-Za-z0-9]{4}">
+      </label>
+      <button class="btn">Gabung</button>
+    </form>
+    <p id="lobby-error" class="error" role="alert" hidden></p>
+    <button id="open-board" class="link">Lihat papan juara</button>
+  </main>
+
+  <!-- In a room. -->
+  <div id="room" hidden>
+    <header class="topbar">
+      <div class="sheet chip">
+        <span>Meja</span>
+        <b id="room-code" class="code"></b>
+        <button id="copy-link" class="btn small">Salin tautan</button>
+      </div>
+      <button id="mute" class="btn small sound" aria-pressed="false">Bisukan</button>
+      <p id="conn" class="sheet chip conn" hidden></p>
+    </header>
+
+    <aside class="sheet players" aria-label="Pemain">
+      <ol id="players"></ol>
+      <p id="spectators" class="muted" hidden></p>
+    </aside>
+
+    <!-- Lobby phase: rules and start. -->
+    <section id="waiting" class="sheet waiting" hidden>
+      <h2>Menunggu pemain</h2>
+      <p id="waiting-hint" class="muted"></p>
+      <fieldset id="rules" class="rules">
+        <legend>Aturan main</legend>
+        <label><input type="radio" name="overshoot" value="stay"> Lewat 100: tetap di tempat</label>
+        <label><input type="radio" name="overshoot" value="bounce"> Lewat 100: mundur sisa langkah</label>
+        <label><input type="checkbox" id="six-again"> Dapat 6, lempar lagi</label>
+      </fieldset>
+      <button id="start" class="btn primary">Mulai main</button>
+      <button id="leave" class="link">Keluar dari kursi</button>
+    </section>
+
+    <footer class="dock">
+      <p id="log" class="sheet log" aria-live="polite"></p>
+      <div id="reactions" class="reactions" role="group" aria-label="Kirim reaksi"></div>
+      <div class="roll-row">
+        <p id="status" class="status"></p>
+        <button id="roll" class="btn primary roll" disabled>Lempar dadu</button>
+      </div>
+    </footer>
+  </div>
+
+  <div id="my-reaction" class="my-reaction" aria-hidden="true"></div>
+
+  <dialog id="results" class="sheet modal">
+    <h2 id="results-title"></h2>
+    <table class="table">
+      <thead><tr><th>Pemain</th><th class="num">Petak</th><th class="num">Lemparan</th><th class="num">Tangga</th><th class="num">Ular</th></tr></thead>
+      <tbody id="results-body"></tbody>
+    </table>
+    <p id="results-note" class="muted"></p>
+    <div class="actions">
+      <button id="rematch" class="btn primary">Main lagi</button>
+      <button id="results-close" class="btn">Lihat meja</button>
+      <button id="results-board" class="link">Papan juara</button>
+    </div>
+  </dialog>
+
+  <dialog id="leaderboard" class="sheet modal">
+    <h2>Papan juara</h2>
+    <p class="muted">Hanya permainan dengan dua pemain atau lebih yang dihitung.</p>
+    <table class="table">
+      <thead><tr><th class="num">#</th><th>Pemain</th><th class="num">Menang</th><th class="num">Main</th><th class="num">Tercepat</th></tr></thead>
+      <tbody id="leaderboard-body"></tbody>
+    </table>
+    <div class="actions"><button id="leaderboard-close" class="btn">Tutup</button></div>
+  </dialog>
+</body>
+</html>
