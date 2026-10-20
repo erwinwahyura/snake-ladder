@@ -31,7 +31,7 @@ with sync_playwright() as p:
     g.goto(B, wait_until="domcontentloaded"); g.wait_for_selector("#room-list li", timeout=10000)
     g.screenshot(path=f"{S}/22-open-tables.png")
     print("listed:", g.inner_text("#room-list").replace("\n"," | "))
-    g.fill("#name","Joko"); g.click("#room-list button")
+    g.fill("#name","Joko"); g.click("#room-list button:has-text('Gabung')")
     h.wait_for_function("[...document.querySelectorAll('#players li .who')].some(e=>e.textContent.startsWith('Joko'))", timeout=10000)
     print("host sees:", h.inner_text("#players").replace("\n"," | "))
     h.screenshot(path=f"{S}/23-host-after-join.png")

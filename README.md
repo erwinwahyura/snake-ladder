@@ -25,6 +25,8 @@ Open two browser windows to play against yourself. A solo game works too, but it
 1. Set your host in `deploy/ansible/inventory.ini` and the domain in `deploy/ansible/playbook.yml`.
 2. Make sure your main Caddyfile has `import sites/*`.
 3. Run `make deploy`. It builds a static linux/amd64 binary, installs the systemd unit and adds the Caddy site.
+   - If games are in progress it waits for them to finish, for up to 10 minutes (`drain_minutes`), before restarting.
+   - Players at a table see "Server sedang diperbarui…" during the restart.
 
 ## How it plays
 

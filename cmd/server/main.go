@@ -130,8 +130,16 @@ func routes(a app, origins []string) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		writeJSON(w, map[string]any{"rooms": hub.Public(20)})
 	})
+	// The board layout, so the lobby can draw it before you join. The
+	// server is the only place it is defined.
+	mux.HandleFunc("GET /api/board", func(w http.ResponseWriter, r *http.Request) {
+		b := hub.Board()
+		writeJSON(w, map[string]any{"ladders": b.Ladders(), "snakes": b.Snakes()})
+	})
+	// playing: games with someone connected. Deploys wait for it to be 0.
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"ok": true, "rooms": hub.Len()})
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, map[string]any{"ok": true, "rooms": hub.Len(), "playing": hub.Playing()})
 	})
 
 	static, err := fs.Sub(web.Files, ".")

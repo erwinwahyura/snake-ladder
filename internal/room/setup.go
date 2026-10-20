@@ -227,3 +227,47 @@ func (r *Room) onMatchTimeout() {
 	}
 	r.startGame()
 }
+
+// tightenMatch shortens the wait once people are gathering: nobody wants
+// to sit 30 s with two people already at the table.
+func (r *Room) tightenMatch() {
+	more := r.cfg.Timing.MatchWaitMore
+	if !r.match || r.phase != PhaseLobby || more <= 0 {
+		return
+	}
+	var within time.Duration
+	switch n := r.connectedSeats(); {
+	case n >= 3:
+		within = more / 2
+	case n == 2:
+		within = more
+	default:
+		return
+	}
+	if d := time.Now().Add(within); d.Before(r.matchDeadline) {
+		r.matchDeadline = d
+		r.matchTimer.Reset(within)
+	}
+}
+
+// matchJoinable asks the room (from another goroutine) whether a person
+// searching for a game could still sit down here.
+func (r *Room) matchJoinable() bool {
+	ans := make(chan bool, 1)
+	if !r.post(funcEv(func() {
+		ok := r.match && r.phase == PhaseLobby && !r.delisted
+		if ok {
+			free := 0
+			for _, i := range r.openSeats() {
+				if s := r.seats[i]; s == nil || (!s.bot && s.client == nil) {
+					free++
+				}
+			}
+			ok = free > 0
+		}
+		ans <- ok
+	})) {
+		return false
+	}
+	return <-ans
+}

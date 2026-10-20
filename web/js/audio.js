@@ -21,13 +21,19 @@ export function setMuted(m) {
   if (master) master.gain.value = m ? 0 : 0.6;
 }
 
+// isReady: the browser has let us start audio.
+export function isReady() {
+  return !!ctx && ctx.state === 'running';
+}
+
+// unlock starts audio; call it from a tap or key press. Resolves once
+// the browser has actually started it.
 export function unlock() {
   if (ctx) {
-    if (ctx.state === 'suspended') ctx.resume();
-    return;
+    return ctx.state === 'suspended' ? ctx.resume().catch(() => {}) : Promise.resolve();
   }
   const AC = window.AudioContext || window.webkitAudioContext;
-  if (!AC) return;
+  if (!AC) return Promise.resolve();
   ctx = new AC();
   master = ctx.createGain();
   master.gain.value = muted ? 0 : 0.6;
@@ -36,6 +42,7 @@ export function unlock() {
   noise = ctx.createBuffer(1, ctx.sampleRate, ctx.sampleRate);
   const d = noise.getChannelData(0);
   for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  return ctx.state === 'running' ? Promise.resolve() : ctx.resume().catch(() => {});
 }
 
 function ready() {

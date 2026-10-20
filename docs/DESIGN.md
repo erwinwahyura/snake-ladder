@@ -1,6 +1,6 @@
 # Design
 
-Last updated: 2026-10-19 (loop 6)
+Last updated: 2026-10-20 (loop 7)
 
 ## Shape
 
@@ -77,6 +77,8 @@ anim = dice 1100ms + steps × 260ms + (snake|ladder ? 1000ms : 0) + settle 400ms
 - **Joining.** `/ws?match=1` calls `Hub.QuickMatch()`. It picks the listed `match` table with the most people, or creates a room and runs `openMatch()` on it: public, 4 seats, default rules, no host, and `matchTimer` set to `MatchWait` (30 s).
 - **Starting.** The room starts as soon as every open seat holds a connected person (`maybeStartMatch` after each join). When the timer fires instead, it clears seats of people who left, fills the rest with bots and starts. If no person is connected it does nothing, and the room idles out.
 - **Losing the race.** A searcher who arrives after the last seat went gets `match_full`, and the client searches again.
+- **One search at a time.** `QuickMatch` holds `matchMu` for the whole choose-or-create. The newest match table is kept as `fresh` and offered to the next searcher even before it's listed (a table is listed only once a person sits). So two simultaneous searchers can't open two tables.
+- **Shrinking wait.** After each join, `tightenMatch` pulls the deadline in to `now + MatchWaitMore` (15 s) with 2 people and `now + MatchWaitMore/2` with 3. It never pushes the deadline later.
 - **Listing.** Match tables are listed only in the lobby phase. `state.matchAt` carries the deadline for the countdown.
 
 ### Points and recording
@@ -154,7 +156,8 @@ Full snapshots rather than diffs keep reconnects trivial: the client just render
 - **`audio.js`** synthesises every sound with Web Audio oscillators and filtered noise, so there are no audio files. The mute setting is stored in `localStorage ut.mute`.
 - **`net.js`** handles reconnection with exponential backoff, and reconnects immediately when the tab becomes visible again.
 - **`?debug`** exposes `window.__ut = {world, app}` for browser tests.
-- **Board layout** is defined twice, in `internal/game.Classic()` and in `CLASSIC_BOARD` in `main.js`. The client copy is only there to draw the lobby background before joining; the server sends the real layout in `welcome`. Keep the two in sync.
+- **Board layout** is defined once, in `internal/game.Classic()`. The lobby draws it from `GET /api/board`, and `welcome` carries the same layout.
+- **Catch-up.** `drain()` plays queued moves at 0.45× duration while more are waiting, and places all but the newest instantly when more than three are queued.
 
 ## Visual direction
 
@@ -167,6 +170,14 @@ The look is a printed warung board on a teak table at night.
 ## Install (PWA)
 
 The page ships `manifest.webmanifest` (standalone display, teak theme colour) with 192/512 icons, a maskable icon and an Apple touch icon. The icons were drawn once with PIL and live in `web/icons`. There is no service worker yet; see REVIEW.
+
+## Restarts and deploys
+
+- **Restart notice.** `Hub.Close()` (on SIGTERM) broadcasts `{"t":"server_restart"}` to every table before stopping it; queued messages are still written before the socket closes. The client shows "Server sedang diperbarui…" while it reconnects, and when the table turns out to be gone it explains why.
+- **Waiting for games.** `/healthz` → `playing` counts rooms whose `active` flag is set (a game running with someone connected), updated on every state broadcast. The Ansible playbook polls it every 10 s and restarts only at 0, or after `drain_minutes`.
+- **Service worker** (`web/sw.js`).
+  - Precaches `offline.html`, `style.css`, the three font weights and one icon.
+  - Navigation is network-first, falling back to `offline.html`. Other assets are network-first with a cache fallback. `/api/*` and `/ws*` are passed through untouched.
 
 ## Deploy
 

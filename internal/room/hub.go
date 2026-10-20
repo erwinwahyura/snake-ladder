@@ -24,6 +24,7 @@ type Timing struct {
 	Settle        time.Duration // pause after a move before the next turn
 	BotThink      time.Duration // a bot waits this long (plus up to half again) before rolling
 	MatchWait     time.Duration // Cari lawan: wait this long for people, then fill with bots
+	MatchWaitMore time.Duration // once 2 people wait, start within this (3 people: half); 0 = never shorten
 	IdleRoomTTL   time.Duration // empty rooms are removed after this
 	IdleCheck     time.Duration // how often to look for idle rooms
 }
@@ -39,6 +40,7 @@ func DefaultTiming() Timing {
 		Settle:        400 * time.Millisecond,
 		BotThink:      900 * time.Millisecond,
 		MatchWait:     30 * time.Second,
+		MatchWaitMore: 15 * time.Second,
 		IdleRoomTTL:   10 * time.Minute,
 		IdleCheck:     time.Minute,
 	}
@@ -74,6 +76,12 @@ type Hub struct {
 	cfg   Config
 	mu    sync.Mutex
 	rooms map[string]*Room
+
+	// matchMu serialises Cari lawan, so two people searching at the same
+	// moment meet instead of each opening a table. fresh is the newest
+	// match table, which isn't listed until its first person sits down.
+	matchMu sync.Mutex
+	fresh   *Room
 }
 
 // NewHub returns a hub, filling unset config with defaults.
@@ -114,6 +122,9 @@ func (h *Hub) Create() (*Room, error) {
 // people waiting) or opens a new one. The caller then joins it; if the
 // last seat went in the meantime the room answers match_full.
 func (h *Hub) QuickMatch() (*Room, error) {
+	h.matchMu.Lock()
+	defer h.matchMu.Unlock()
+
 	h.mu.Lock()
 	var best *Room
 	bestHumans := -1
@@ -126,6 +137,10 @@ func (h *Hub) QuickMatch() (*Room, error) {
 	if best != nil {
 		return best, nil
 	}
+	// A table opened a moment ago for someone still on their way in.
+	if h.fresh != nil && h.fresh.matchJoinable() {
+		return h.fresh, nil
+	}
 	r, err := h.Create()
 	if err != nil {
 		return nil, err
@@ -135,7 +150,25 @@ func (h *Hub) QuickMatch() (*Room, error) {
 		return nil, ErrTooManyRooms
 	}
 	<-done
+	h.fresh = r
 	return r, nil
+}
+
+// Board is the layout every table plays on.
+func (h *Hub) Board() game.Board { return h.cfg.Board }
+
+// Playing counts tables with a game running and someone there to see it.
+// Deploys wait for this to reach zero.
+func (h *Hub) Playing() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, r := range h.rooms {
+		if r.active.Load() {
+			n++
+		}
+	}
+	return n
 }
 
 // Get finds a room by code, case-insensitively.
@@ -161,6 +194,10 @@ func (h *Hub) Close() {
 	}
 	h.mu.Unlock()
 	for _, r := range rooms {
+		// Say goodbye first, so players see "server is updating" rather
+		// than a dropped connection. Messages already queued are still
+		// written before the socket closes.
+		r.post(funcEv(func() { r.broadcast(map[string]string{"t": "server_restart"}) }))
 		r.stop()
 	}
 }
