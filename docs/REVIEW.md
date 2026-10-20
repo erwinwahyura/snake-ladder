@@ -4,6 +4,43 @@ Each loop ends with an honest pass over the build. New loops go on top.
 
 ---
 
+## Loop 7 — 2026-10-20
+
+### What I checked
+- **New race tests:**
+  - Three searchers dialling at once land at one table.
+  - The deterministic version: concurrent `QuickMatch()` calls before anyone sits. It **fails without the fix** (checked by switching the fix off) and passes with it, 20 runs.
+  - Two people bring the start forward, then the game starts with 2 bots.
+  - `Playing()` goes 1 → 0 as people leave.
+  - `Close()` sends `server_restart`.
+  - HTTP: `/api/board`, `healthz.playing`, and `sw.js` / `offline.html` served `no-cache`.
+- **Browser:**
+  - With the server unreachable, the installed page shows the offline screen, drawn with the cached font and CSS.
+  - Six moves injected at once drain in about 5 s on swiftshader, instead of about 18 s.
+  - Killing the server mid-table shows "Server sedang diperbarui…". After a restart the lobby shows the apology.
+  - Rejoining from a link shows "🔈 Ketuk untuk suara". The first tap enables sound without muting.
+  - No console errors.
+- **Regression:** all four saved browser scripts were rerun on the new build (two players, bots + public, friends + invites, quick match). One had gone stale and is fixed.
+- **Ansible:** the drain task was run against the real server (idle: passes at once, no message) and a fake busy one (`playing: 2`: gives up after the limit and prints how many games were running). `ansible-playbook --syntax-check` passes.
+
+### Good
+- **The quick-match race is fixed by design** (one search at a time), not by luck, with a test that proves it.
+- **Deploys stop being a game-ender** in the common case, and when they must be, players get told.
+- **The service worker can't serve stale code.** Network-first means it only ever helps when there's no network.
+
+### Not good yet
+- **Playwright's offline switch doesn't reach service workers in Chromium.** The offline check simulates "no connection" by stopping the server instead. Real airplane-mode testing is part of the phone play-test.
+- **Serialising Cari lawan** puts every search through one lock. At hobby scale that's microseconds; it would need sharding only with thousands of searches a second.
+- **Still waiting on you:**
+  - An OAuth client, for optional Google / passkey sign-in.
+  - A real-phone play-test after deploy.
+
+### Next
+1. Deploy to Hetzner (`make deploy`), then play on two phones over mobile data.
+2. Optional Google / passkey sign-in once an OAuth client exists.
+
+---
+
 ## Loop 6 — 2026-10-19
 
 ### What I checked

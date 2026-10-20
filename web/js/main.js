@@ -1,7 +1,7 @@
 // App glue: lobby, room HUD, networking and the move queue.
 import { World, SEAT_COLORS } from './scene.js';
 import { Connection } from './net.js';
-import { sfx, unlock, isMuted, setMuted } from './audio.js';
+import { sfx, unlock, isMuted, setMuted, isReady as audioReady } from './audio.js';
 import { Presence } from './presence.js';
 
 const REACTIONS = ['😂', '😱', '🔥', '👏', '😭', '🐍'];
@@ -41,11 +41,6 @@ function openSeatsFor(size) {
   return size === 2 ? [0, 2] : [0, 1, 2, 3].slice(0, size);
 }
 
-const CLASSIC_BOARD = {
-  ladders: [[4, 14], [9, 31], [21, 42], [28, 84], [51, 67], [72, 91], [80, 99]].map(([from, to]) => ({ from, to })),
-  snakes: [[17, 7], [54, 34], [62, 19], [64, 60], [87, 24], [93, 73], [95, 75], [98, 79]].map(([from, to]) => ({ from, to })),
-};
-
 const app = {
   room: null,
   seat: -1,
@@ -58,14 +53,21 @@ const app = {
   lastPhase: null,
   intent: null, // 'bots' when "Main lawan bot" is setting up its table
   matchRetries: 0,
+  restarting: false, // the server said it is about to restart
 };
 
 await document.fonts.load('800 64px "Baloo 2"').catch(() => {});
 const world = new World($('scene'));
-// Show the board behind the lobby straight away; the server sends the same
-// layout on join, so setBoard() then does nothing.
-world.setBoard(CLASSIC_BOARD);
+// Draw the board behind the lobby straight away. The server is the only
+// place the layout lives; on join it sends the same one, and setBoard()
+// then does nothing.
+fetch('/api/board')
+  .then((r) => r.json())
+  .then((b) => world.setBoard(b))
+  .catch(() => {});
 world.setIdle(true);
+// Lets the installed app show a friendly screen when there's no signal.
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
 // ?debug exposes internals for browser tests and poking from the console.
 if (new URLSearchParams(location.search).has('debug')) window.__ut = { world, app };
 
@@ -351,6 +353,9 @@ function onMessage(msg) {
     case 'moved': return onMoved(msg);
     case 'reaction': return onReaction(msg);
     case 'invited': return onInvited(msg);
+    case 'server_restart':
+      app.restarting = true;
+      return onStatus('reconnecting');
     case 'error': return onError(msg);
   }
 }
@@ -420,13 +425,24 @@ function onMoved(msg) {
   if (!app.animating) drain();
 }
 
+// Moves are animated in order. A phone that falls behind (slow GPU, or
+// the tab was in the background) catches up: with a backlog, moves play
+// faster, and with a long one, all but the latest jump straight to their
+// squares.
 async function drain() {
   app.animating = true;
   while (app.queue.length) {
+    if (app.queue.length > 3) {
+      for (const skipped of app.queue.splice(0, app.queue.length - 1)) {
+        world.placePawn(skipped.move.seat, skipped.move.to);
+      }
+    }
     const msg = app.queue.shift();
     const m = msg.move;
+    const f = app.queue.length > 0 ? 0.45 : 1;
+    const t = app.timing;
     setLog('');
-    await world.animateMove(m, app.timing);
+    await world.animateMove(m, { diceMs: t.diceMs * f, stepMs: t.stepMs * f, jumpMs: t.jumpMs * f });
     setLog(describe(m, msg.auto));
     if (app.state) world.syncPawns(app.state.players);
   }
@@ -488,7 +504,12 @@ function onError(msg) {
   if (msg.code === 'room_not_found' || msg.code === 'server_full') {
     if (app.room) store.del(`ut.token.${app.room}`);
     backToLobby();
-    showLobbyError(text);
+    showLobbyError(
+      app.restarting && msg.code === 'room_not_found'
+        ? 'Server baru saja diperbarui, jadi permainan tadi berakhir. Maaf! Silakan mulai lagi.'
+        : text,
+    );
+    app.restarting = false;
     return;
   }
   if (text) setLog(text);
@@ -498,7 +519,7 @@ function onError(msg) {
 function onStatus(status) {
   const el = $('conn');
   if (status === 'reconnecting' && app.joinedOnce) {
-    el.textContent = 'Menyambung ulang…';
+    el.textContent = app.restarting ? 'Server sedang diperbarui…' : 'Menyambung ulang…';
     el.hidden = false;
   } else {
     el.hidden = true;
@@ -894,16 +915,31 @@ $('fill-bots').addEventListener('click', () => conn.send({ t: 'bot', action: 'fi
 
 // --- sound ---
 
+// Browsers only start audio after a tap. Someone who rejoins straight from
+// a link may never have tapped, so the button says so until they do.
 function renderMute() {
   const m = isMuted();
-  $('mute').textContent = m ? 'Nyalakan suara' : 'Bisukan';
+  const locked = !m && !audioReady();
+  $('mute').textContent = locked ? '🔈 Ketuk untuk suara' : m ? 'Nyalakan suara' : 'Bisukan';
   $('mute').setAttribute('aria-pressed', String(m));
 }
-$('mute').addEventListener('click', () => {
-  unlock();
-  setMuted(!isMuted());
+$('mute').addEventListener('click', async () => {
+  if (!isMuted() && !audioReady()) {
+    await unlock(); // the first tap only turns sound on
+  } else {
+    await unlock();
+    setMuted(!isMuted());
+  }
   renderMute();
 });
 renderMute();
-// Browsers only start audio after a gesture.
-for (const ev of ['pointerdown', 'keydown']) addEventListener(ev, unlock, { passive: true });
+for (const ev of ['pointerdown', 'keydown']) {
+  addEventListener(
+    ev,
+    (e) => {
+      if (e.target.closest?.('#mute')) return; // the button handles its own tap
+      unlock().then(renderMute);
+    },
+    { passive: true },
+  );
+}

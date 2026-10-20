@@ -52,6 +52,8 @@ type Room struct {
 	// listing is the room's entry in the public list, or nil. It is the
 	// only room state read from other goroutines (by the hub).
 	listing atomic.Pointer[Listing]
+	// active: a game is running with someone connected (read by the hub).
+	active atomic.Bool
 }
 
 type seat struct {
@@ -145,6 +147,7 @@ func (r *Room) run() {
 			r.detach(c)
 		}
 		r.listing.Store(nil)
+		r.active.Store(false)
 		r.hub.remove(r.code)
 		close(r.done)
 	}()
@@ -215,6 +218,7 @@ func (r *Room) onJoin(ev joinEv) {
 			r.seats[i], c.seat = s, i
 			r.markSeated(s, true)
 			r.welcome(c, s.token)
+			r.tightenMatch()
 			r.broadcastState()
 			r.maybeStartMatch()
 			return
@@ -698,6 +702,7 @@ func (r *Room) welcome(c *client, token string) {
 
 func (r *Room) broadcastState() {
 	r.publishListing() // first, so the public list is never behind what players see
+	r.active.Store(r.phase == PhasePlaying && r.connectedSeats() > 0)
 	r.broadcast(r.state())
 }
 

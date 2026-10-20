@@ -1,5 +1,25 @@
 # Changelog
 
+## Loop 7 — 2026-10-20
+
+### Fixed
+- **Cari lawan no longer splits people who search at the same moment.** Searches are serialised in the hub, and a just-opened table is offered to the next searcher even before its first person has sat down (when it isn't listed yet).
+- **Stale selector in `scripts/e2e_bots_and_public.py`.** Since "Laporkan" was added in loop 5, the script was clicking it instead of "Gabung". Found by rerunning every browser script this loop.
+- **The board layout lives only on the server.** The lobby draws it from `GET /api/board`; the copy in `main.js` is gone.
+
+### Added
+- **Shorter Cari lawan wait as people arrive.** Two people: start within 15 s. Three people: within 7.5 s. Four: at once. One person alone still waits the full 30 s.
+- **Friendly offline screen.** A service worker (`sw.js`) shows "Tidak ada koneksi" with a **Coba lagi** button when the app is opened with no connection.
+  - It is network-first for everything, so a deploy is picked up on the next load and old JavaScript never talks to a new server. The cache is only an offline fallback.
+  - Game sockets and `/api` are never touched.
+- **Restart notice.** On shutdown the server tells every table it is restarting. Players see "Server sedang diperbarui…", and afterwards "Server baru saja diperbarui, jadi permainan tadi berakhir. Maaf!" instead of a bare "table not found".
+- **Deploys wait for games to finish.**
+  - `/healthz` now reports `playing`: games with someone connected.
+  - The Ansible playbook waits for it to reach 0 before restarting, for up to `drain_minutes` (10), then deploys anyway and says how many games were still running.
+  - The port is now a playbook variable.
+- **Catch-up animation.** If moves pile up (a slow phone, or the tab was in the background), they play at about twice the speed. With more than three waiting, all but the latest jump straight to their squares.
+- **"🔈 Ketuk untuk suara".** When the browser hasn't allowed audio yet (rejoining straight from a link with no tap), the sound button says so. The first tap turns sound on rather than muting.
+
 ## Loop 6 — 2026-10-19
 
 ### Added

@@ -712,3 +712,107 @@ func TestQuickMatchWithNobodyLeftDoesNotStart(t *testing.T) {
 		t.Fatalf("empty match table started anyway: %s", p)
 	}
 }
+
+func TestQuickMatchSimultaneousSearchersMeet(t *testing.T) {
+	srv, _ := newMatchServer(t, time.Hour)
+	const n = 3
+	rooms := make(chan string, n)
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			c := dial(t, srv, url.Values{"match": {"1"}, "name": {string(rune('A' + i))}})
+			rooms <- c.waitFor("welcome", nil)["room"].(string)
+		}(i)
+	}
+	wg.Wait()
+	close(rooms)
+	first := ""
+	for r := range rooms {
+		if first == "" {
+			first = r
+		} else if r != first {
+			t.Fatalf("simultaneous searchers split across tables: %s vs %s", first, r)
+		}
+	}
+}
+
+func TestQuickMatchWaitShrinksAsPeopleArrive(t *testing.T) {
+	tm := fastTiming()
+	tm.MatchWait = time.Hour
+	tm.MatchWaitMore = 150 * time.Millisecond
+	h := NewHub(Config{Timing: tm, Dice: (&scriptedDice{}).next})
+	srv := httptest.NewServer(h.Handler(nil))
+	t.Cleanup(func() { h.Close(); srv.Close() })
+
+	a := dial(t, srv, url.Values{"match": {"1"}, "name": {"A"}})
+	a.waitFor("welcome", nil)
+	first := a.waitFor("state", nil)["matchAt"].(float64)
+	b := dial(t, srv, url.Values{"match": {"1"}, "name": {"B"}})
+	b.waitFor("welcome", nil)
+	st := a.waitFor("state", func(m map[string]any) bool { return len(players(m)) == 2 })
+	if at := st["matchAt"].(float64); at >= first {
+		t.Fatalf("second person should bring the start forward: %v -> %v", first, at)
+	}
+	// Starts within the shortened wait, with two bots.
+	st = a.waitFor("state", phaseIs(PhasePlaying))
+	bots := 0
+	for _, p := range players(st) {
+		if p["bot"] == true {
+			bots++
+		}
+	}
+	if bots != 2 {
+		t.Fatalf("want 2 bots, got %d", bots)
+	}
+	if h.Playing() != 1 {
+		t.Fatalf("Playing() = %d, want 1", h.Playing())
+	}
+	a.conn.Close(websocket.StatusNormalClosure, "")
+	b.conn.Close(websocket.StatusNormalClosure, "")
+	for i := 0; h.Playing() != 0; i++ {
+		if i > 100 {
+			t.Fatal("a game with nobody connected is not 'playing' for deploys")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestCloseWarnsPlayers(t *testing.T) {
+	srv, h := newTestServer(t, &scriptedDice{}, nil)
+	a := dial(t, srv, url.Values{"name": {"A"}})
+	a.waitFor("welcome", nil)
+	go h.Close()
+	a.waitFor("server_restart", nil)
+}
+
+// The deterministic core of the race: searchers who haven't sat down yet
+// (so the table isn't listed) must still be sent to the same table.
+func TestQuickMatchBeforeAnyoneSits(t *testing.T) {
+	_, h := newMatchServer(t, time.Hour)
+	var wg sync.WaitGroup
+	got := make(chan *Room, 3)
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			r, err := h.QuickMatch()
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			got <- r
+		}()
+	}
+	wg.Wait()
+	close(got)
+	var first *Room
+	for r := range got {
+		if first == nil {
+			first = r
+		} else if r != first {
+			t.Fatal("searchers who haven't sat down yet were split across tables")
+		}
+	}
+}

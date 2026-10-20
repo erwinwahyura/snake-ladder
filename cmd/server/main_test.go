@@ -158,6 +158,18 @@ func TestRoutes(t *testing.T) {
 		t.Fatalf("report without identity = %d", st)
 	}
 
+	if _, body = get("/api/board"); !strings.Contains(body, `"ladders":[{"from":4,"to":14}`) {
+		t.Fatalf("board = %s", body)
+	}
+	if _, body = get("/healthz"); !strings.Contains(body, `"playing":0`) {
+		t.Fatalf("healthz = %s", body)
+	}
+	for _, p := range []string{"/sw.js", "/offline.html"} {
+		if res, _ := get(p); res.StatusCode != 200 || res.Header.Get("Cache-Control") != "no-cache" {
+			t.Fatalf("%s: %d %q", p, res.StatusCode, res.Header.Get("Cache-Control"))
+		}
+	}
+
 	if res, _ := get("/healthz"); res.StatusCode != 200 {
 		t.Fatal("healthz")
 	}

@@ -95,6 +95,9 @@ h2 { font-size: 1.5rem; }
   min-width: 0;
 }
 .lobby { max-height: calc(100dvh - 2 * var(--gutter)); overflow-y: auto; }
+.offline-page { overflow: auto; background: radial-gradient(ellipse at 50% 30%, #3a2414, var(--teak) 70%); }
+.offline-page .lobby h2 { font-size: 1.4rem; }
+.offline-page .btn { text-align: center; text-decoration: none; }
 .lobby-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .lobby-actions .quick { grid-column: 1 / -1; font-size: 1.2rem; }
 .open-tables { border-top: 2px dashed #b9ad90; padding-top: 10px; display: grid; gap: 6px; }
