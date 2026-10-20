@@ -23,17 +23,85 @@ function playerId() {
 async function ensureIdentity() {
   try {
     const res = await fetch(`/api/identity?pid=${encodeURIComponent(playerId())}`);
-    const { pid } = await res.json();
+    const { pid, google, googleEnabled } = await res.json();
     store.set('ut.pid', pid);
+    app.account = { google: !!google, enabled: !!googleEnabled };
   } catch {
     /* offline: keep whatever we have; games just won't be recorded */
   }
+  renderAccount();
 }
+
+// --- Masuk dengan Google (optional) ---
+
+const LOGIN_ERRORS = {
+  cancelled: 'Masuk dengan Google dibatalkan. Kamu tetap bisa main tanpa masuk.',
+  state: 'Tautan masuk itu bukan dari perangkat ini. Tekan "Masuk dengan Google" lagi.',
+  failed: 'Masuk dengan Google gagal. Coba lagi sebentar lagi.',
+};
+
+function renderAccount() {
+  const a = app.account || {};
+  $('account-line').hidden = !a.enabled;
+  $('google-in').hidden = $('google-hint').hidden = !!a.google;
+  $('google-status').hidden = $('google-out').hidden = !a.google;
+}
+
+function showLobbyNote(text) {
+  $('lobby-note').textContent = text;
+  $('lobby-note').hidden = !text;
+}
+
+// Back from Google: the server left a one-time code (never the identity
+// itself) in the URL, which we trade for the identity.
+async function handleLoginReturn() {
+  const params = new URLSearchParams(location.search);
+  const code = params.get('login');
+  const err = params.get('login_error');
+  const nama = params.get('nama');
+  if (!code && !err) return;
+  for (const k of ['login', 'login_error', 'nama']) params.delete(k);
+  history.replaceState(null, '', location.pathname + (params.toString() ? `?${params}` : ''));
+  if (err) {
+    showLobbyError(LOGIN_ERRORS[err] || LOGIN_ERRORS.failed);
+    return;
+  }
+  try {
+    const res = await fetch(`/api/identity/claim?code=${encodeURIComponent(code)}`, { method: 'POST' });
+    if (!res.ok) throw new Error();
+    store.set('ut.pid', (await res.json()).pid);
+    if (nama && !$('name').value.trim()) {
+      $('name').value = nama.slice(0, 16);
+      myName();
+    }
+    showLobbyNote('Berhasil masuk dengan Google. Poin dan teman mainmu sekarang ikut ke perangkat mana pun.');
+  } catch {
+    showLobbyError(LOGIN_ERRORS.failed);
+  }
+}
+
+// A form post, so the guest identity travels in the body, not the URL.
+$('google-in').addEventListener('click', () => {
+  const form = Object.assign(document.createElement('form'), { method: 'POST', action: '/auth/google' });
+  form.append(Object.assign(document.createElement('input'), { type: 'hidden', name: 'pid', value: playerId() }));
+  document.body.append(form);
+  form.submit();
+});
+
+$('google-out').addEventListener('click', async () => {
+  if (!confirm('Keluar dari akun Google di perangkat ini? Poin dan teman mainmu tetap aman di akunmu. Di sini kamu main sebagai tamu baru.')) return;
+  store.del('ut.pid');
+  await ensureIdentity();
+  presence.restart();
+  loadFriends();
+  showLobbyNote('Kamu sudah keluar. Masuk lagi kapan saja dengan Google.');
+});
 
 function setIdentity(pid) {
   store.set('ut.pid', pid);
   presence.restart();
   loadFriends();
+  ensureIdentity(); // refresh whether this identity has Google attached
 }
 
 // Seats in use for a table size; two players sit opposite each other.
@@ -54,6 +122,7 @@ const app = {
   intent: null, // 'bots' when "Main lawan bot" is setting up its table
   matchRetries: 0,
   restarting: false, // the server said it is about to restart
+  account: null, // { google: linked?, enabled: sign-in offered? }
 };
 
 await document.fonts.load('800 64px "Baloo 2"').catch(() => {});
@@ -152,6 +221,7 @@ function enterRoom(code) {
   }));
 }
 
+await handleLoginReturn();
 await ensureIdentity();
 presence.open();
 

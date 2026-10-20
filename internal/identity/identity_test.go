@@ -96,3 +96,32 @@ func TestTransfers(t *testing.T) {
 		t.Fatal("expired code must not work")
 	}
 }
+
+func TestAccounts(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "accounts.json")
+	a, _ := OpenAccounts(path)
+	if err := a.LinkGoogle("g-1", "player-a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.LinkGoogle("g-2", "player-a"); err != ErrAlreadyLinked {
+		t.Fatalf("one player, one Google account: %v", err)
+	}
+	if id, ok := a.Google("g-1"); !ok || id != "player-a" || !a.Linked("player-a") {
+		t.Fatal("lookup failed")
+	}
+	_ = a.Move("player-a", "player-b")
+	if id, _ := a.Google("g-1"); id != "player-b" || a.Linked("player-a") {
+		t.Fatal("move must follow the player")
+	}
+	b, _ := OpenAccounts(path)
+	if id, _ := b.Google("g-1"); id != "player-b" || !b.Linked("player-b") {
+		t.Fatal("accounts must survive a restart")
+	}
+
+	s, _ := New([]byte(strings.Repeat("s", 32)))
+	tok := s.Issue()
+	id, _ := s.Verify(tok)
+	if s.TokenFor(id) != tok {
+		t.Fatal("TokenFor must reproduce the signed token")
+	}
+}

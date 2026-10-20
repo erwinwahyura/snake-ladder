@@ -5,6 +5,10 @@
   vars:
     domain: ulartangga.erwarx.com
     port: 8090 # must match ADDR in deploy/snake-ladder.service
+    # Optional "Masuk dengan Google": set both (keep the secret in
+    # ansible-vault or pass it with -e) to turn sign-in on.
+    google_client_id: ""
+    google_client_secret: ""
     # A restart ends every game in progress, so wait for them to finish
     # first (healthz "playing" == 0), but never longer than this.
     drain_minutes: 10
@@ -42,6 +46,20 @@
         src: ../../bin/snake-ladder-linux-amd64
         dest: /usr/local/bin/snake-ladder
         mode: "0755"
+      notify: restart snake-ladder
+
+    - name: Sign-in settings (only when Google is configured)
+      ansible.builtin.copy:
+        dest: /etc/snake-ladder.env
+        content: |
+          PUBLIC_URL=https://{{ domain }}
+          GOOGLE_CLIENT_ID={{ google_client_id }}
+          GOOGLE_CLIENT_SECRET={{ google_client_secret }}
+        owner: root
+        group: snakeladder
+        mode: "0640"
+      no_log: true
+      when: google_client_id | length > 0 and google_client_secret | length > 0
       notify: restart snake-ladder
 
     - name: systemd unit

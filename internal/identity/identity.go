@@ -102,6 +102,11 @@ func (s *Signer) Issue() string {
 	return id + "." + s.sig(id)
 }
 
+// TokenFor signs an existing ID, for handing a signed-in player their
+// account's identity on a new device. Never call it with an ID taken from
+// a request: only with one the server already trusts.
+func (s *Signer) TokenFor(id string) string { return id + "." + s.sig(id) }
+
 // Verify checks a signed player ID and returns its stable ID part, which
 // is what the leaderboard stores.
 func (s *Signer) Verify(token string) (string, bool) {

@@ -1,5 +1,23 @@
 # Changelog
 
+## Loop 8 — 2026-10-20
+
+### Added
+- **"Masuk dengan Google" (optional).** A button in the lobby attaches a Google account to the player's guest identity, so points and Teman main follow them to any device. Playing still never needs an account.
+  - **Server-side OAuth 2.0 code flow with PKCE** (`internal/auth`). No Google script in the page, so the strict CSP stays. Scopes are only `openid profile`.
+  - **What is stored:** only Google's stable account ID (`DATA_DIR/accounts.json`). No email; the first name only pre-fills the display name.
+  - **First sign-in** keeps the current guest identity, now linked.
+  - **Signing in on another device** gives that same identity. Any guest record on that device is merged in, and the leftover guest key is retired.
+  - **Someone already linked who signs in with a second Google account** gets a separate identity. Nothing is stolen or merged.
+  - **Safety:**
+    - The state is single-use, expires after 10 minutes, and is tied to an HttpOnly SameSite cookie, so a callback link sent by someone else can't sign you in to their account.
+    - The identity comes back as a one-time code, never as a token in the URL.
+    - The start is a form POST, so the guest token never appears in a URL.
+  - **"Keluar"** on a device switches back to a fresh guest. "Ganti kunci" keeps the Google link.
+  - **Off by default.** It turns on when `PUBLIC_URL`, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` are set. The Ansible playbook writes them to `/etc/snake-ladder.env` when `google_client_id` and `google_client_secret` are given.
+- **Teman main merge.** Merging a guest into an account now merges the two friend lists (it used to overwrite), and nobody ends up as their own friend.
+- **Test tooling.** `scripts/fake_google.py` plus `scripts/e2e_google_signin.py` exercise the whole browser flow without real Google.
+
 ## Loop 7 — 2026-10-20
 
 ### Fixed

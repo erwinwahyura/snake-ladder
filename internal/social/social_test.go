@@ -141,3 +141,23 @@ func TestInviteRateLimit(t *testing.T) {
 		t.Fatalf("sent %d invites in a minute, want cap %d", sent, inviteMax)
 	}
 }
+
+func TestFriendsMoveMerges(t *testing.T) {
+	f, _ := OpenFriends("")
+	now := time.Now()
+	f.now = func() time.Time { now = now.Add(time.Second); return now }
+	_ = f.Met(map[string]string{"guest": "G", "sari": "Sari"})
+	_ = f.Met(map[string]string{"acct": "A", "joko": "Joko"})
+	_ = f.Met(map[string]string{"guest": "G", "acct": "A"}) // same person on two devices
+	_ = f.Move("guest", "acct")
+	got := map[string]bool{}
+	for _, e := range f.List("acct") {
+		got[e.ID] = true
+	}
+	if !got["sari"] || !got["joko"] || got["acct"] || got["guest"] || len(got) != 2 {
+		t.Fatalf("merged list = %v", got)
+	}
+	if !f.Has("sari", "acct") || f.Has("sari", "guest") {
+		t.Fatal("friends of the guest now point at the account")
+	}
+}

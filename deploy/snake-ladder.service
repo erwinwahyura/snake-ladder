@@ -8,6 +8,9 @@ User=snakeladder
 Group=snakeladder
 Environment=ADDR=127.0.0.1:8090
 Environment=DATA_DIR=/var/lib/snake-ladder
+# Optional: PUBLIC_URL, GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET for
+# "Masuk dengan Google". Written by the Ansible playbook when configured.
+EnvironmentFile=-/etc/snake-ladder.env
 ExecStart=/usr/local/bin/snake-ladder
 Restart=on-failure
 RestartSec=2

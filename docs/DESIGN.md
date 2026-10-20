@@ -1,6 +1,6 @@
 # Design
 
-Last updated: 2026-10-20 (loop 7)
+Last updated: 2026-10-20 (loop 8)
 
 ## Shape
 
@@ -21,6 +21,7 @@ internal/stats/    leaderboard: JSON file, atomic writes, ranking by points, bot
 internal/identity/ server-signed guest player IDs (HMAC), revocation, one-time transfer codes
 internal/social/   Teman main (friends.json), presence socket, invites
 internal/names/    name filter for rude words
+internal/auth/     optional Google sign-in (OAuth 2.0 code flow + PKCE, server side)
 web/               index.html, style.css, manifest.webmanifest, icons/, js/{main,scene,net,textures,audio}.js, vendor/{three,fonts}
 scripts/           browser end-to-end test (Playwright)
 deploy/            systemd unit, Caddy block, Ansible playbook
@@ -117,6 +118,7 @@ browser ──/ws/presence──► social.Service ◄── room: Seated(id, co
 | Seat token | `localStorage ut.token.<room>` | Reclaim *this* seat after a reconnect. Server-generated, 130 bits. |
 | Player ID | `localStorage ut.pid` | `<id>.<hmac>`, issued by `GET /api/identity` and checked on `/ws`, `/ws/presence` and every API. The leaderboard and friends store only `<id>`. |
 | Transfer code | shown on screen | `POST /api/identity/transfer` creates a 6-character code (10 min, one use). `POST /api/identity/claim?code=` returns the player ID, with a per-IP limit. |
+| Google link | `accounts.json` | Google `sub` → player ID. No email or name stored. |
 | Retired IDs | `identity.key.revoked` | `POST /api/identity/rotate` issues a new ID, moves the record and friends, and revokes the old ID. |
 
 ## Protocol
@@ -170,6 +172,21 @@ The look is a printed warung board on a teak table at night.
 ## Install (PWA)
 
 The page ships `manifest.webmanifest` (standalone display, teak theme colour) with 192/512 icons, a maskable icon and an Apple touch icon. The icons were drawn once with PIL and live in `web/icons`. There is no service worker yet; see REVIEW.
+
+## Google sign-in
+
+```
+page ──POST /auth/google {pid}──► server: state+PKCE, cookie ut_oauth=state ──303──► Google
+Google ──GET /auth/google/callback?code&state──► server: cookie == state? exchange code (+secret, verifier)
+       ──► ID token: aud, iss, exp checked ──► link or find player ──► one-time code
+server ──303 /?login=CODE&nama=First──► page: POST /api/identity/claim → pid
+```
+
+- **Which identity:**
+  - Google account already linked: that player. A guest record on this device that isn't someone else's account is merged in, and the guest key is revoked.
+  - New Google account: this device's guest identity, if it isn't linked to another Google account; otherwise a fresh one.
+- **Sign-out** is client-side: drop the key and ask `/api/identity` for a new guest.
+- **Config:** `PUBLIC_URL`, `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`, all three or it stays off. `GOOGLE_AUTH_URL` / `GOOGLE_TOKEN_URL` exist only to point at `scripts/fake_google.py` in tests.
 
 ## Restarts and deploys
 

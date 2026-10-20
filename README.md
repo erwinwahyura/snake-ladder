@@ -17,8 +17,11 @@ Open two browser windows to play against yourself. A solo game works too, but it
 | Env | Flag | Default | |
 |---|---|---|---|
 | `ADDR` | `-addr` | `:8080` | listen address |
-| `DATA_DIR` | `-data` | `./data` | `leaderboard.json`, `friends.json`, `identity.key` and `identity.key.revoked` (back up all four) |
+| `DATA_DIR` | `-data` | `./data` | `leaderboard.json`, `friends.json`, `accounts.json`, `identity.key` and `identity.key.revoked` (back up all five) |
 | `ORIGINS` | `-origins` | | extra allowed WebSocket origins, comma-separated |
+| `PUBLIC_URL` | | | e.g. `https://ulartangga.erwarx.com`; needed for Google sign-in |
+| `GOOGLE_CLIENT_ID` | | | turns on "Masuk dengan Google" (with the next two) |
+| `GOOGLE_CLIENT_SECRET` | | | |
 
 ## Deploy (Hetzner + Caddy + Ansible)
 
@@ -27,6 +30,30 @@ Open two browser windows to play against yourself. A solo game works too, but it
 3. Run `make deploy`. It builds a static linux/amd64 binary, installs the systemd unit and adds the Caddy site.
    - If games are in progress it waits for them to finish, for up to 10 minutes (`drain_minutes`), before restarting.
    - Players at a table see "Server sedang diperbarui…" during the restart.
+
+## Google sign-in (optional)
+
+Playing never needs an account. "Masuk dengan Google" in the lobby only attaches a Google account to the player's guest identity, so their points and Teman main follow them to any device. If the three settings above aren't set, the button simply doesn't show.
+
+To turn it on:
+
+1. **Create a project.** In [Google Cloud console](https://console.cloud.google.com/), create a project (for example "Ular Tangga").
+2. **Set up the consent screen.** Under **APIs & Services → OAuth consent screen**:
+   - User type **External**.
+   - App name "Ular Tangga", plus your support email and developer email.
+   - Scopes: only the defaults, `openid` and `profile`. We don't ask for email, so no verification is needed. Press **Publish app**, otherwise only listed test users can sign in.
+3. **Create the client.** Under **APIs & Services → Credentials → Create credentials → OAuth client ID**:
+   - Type **Web application**.
+   - **Authorized redirect URIs**: `https://ulartangga.erwarx.com/auth/google/callback`. For local testing, also add `http://localhost:8080/auth/google/callback`.
+4. **Configure the server.** Copy the client ID and secret into the playbook vars `google_client_id` / `google_client_secret`. Use ansible-vault, or `make deploy` with `-e`. The playbook writes them to `/etc/snake-ladder.env` (readable by the service only), with `PUBLIC_URL=https://<domain>`.
+
+To run it locally:
+
+```sh
+PUBLIC_URL=http://localhost:8080 GOOGLE_CLIENT_ID=... GOOGLE_CLIENT_SECRET=... make run
+```
+
+The button is plain text, "Masuk dengan Google". If you'd like Google's official button look, its assets are on [Google's branding page](https://developers.google.com/identity/branding-guidelines).
 
 ## How it plays
 
@@ -41,7 +68,7 @@ Open two browser windows to play against yourself. A solo game works too, but it
 - If your phone sleeps, reopen the link to get your seat back. While you're away, your turns are rolled for you.
 - Points: the winner gets 10, then 6 / 3 / 1 at a 4-player table. Only games with two or more people count. Wins against bots are kept separately.
 - People you play with become **Teman main**. The lobby shows who's online. Invite them from the waiting screen with "Ajak teman main", or "Susul" them to their public table.
-- There's no sign-up. Your record lives in this browser. "Pindah ke HP lain" in the leaderboard gives a one-time code for another device, and "Ganti kunci" retires a leaked key.
+- There's no sign-up. Your record lives in this browser. "Masuk dengan Google" (optional) makes it follow you to any device. Without Google, "Pindah ke HP lain" in the leaderboard gives a one-time code for another device, and "Ganti kunci" retires a leaked key.
 - Rude names are replaced automatically. Public tables can be reported, and two reports hide one.
 - Tap an emoji to react. Use "Bisukan" to mute the sound.
 - On a phone, "Add to Home screen" installs it like an app.

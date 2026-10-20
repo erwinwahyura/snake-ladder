@@ -52,6 +52,10 @@ func (a app) identityRoutes(mux *http.ServeMux) {
 			http.Error(w, "could not move friends", http.StatusInternalServerError)
 			return
 		}
+		if err := a.accounts.Move(oldID, newID); err != nil {
+			http.Error(w, "could not move sign-in", http.StatusInternalServerError)
+			return
+		}
 		if err := a.signer.Revoke(oldID); err != nil {
 			http.Error(w, "could not retire old key", http.StatusInternalServerError)
 			return
