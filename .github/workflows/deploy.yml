@@ -1,0 +1,58 @@
+# Test, build and deploy to ulartangga.erwarx.com on every push to main.
+#
+# The server must first be prepared by the homelab repo (snake_ladder role).
+#
+# Required GitHub Secrets (Settings → Secrets → Actions), same as homelab's:
+#   DEPLOY_SSH_KEY  — private key of the deploy user
+#   DEPLOY_HOST     — server IP or hostname
+#   DEPLOY_USER     — deploy
+
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Test, build & deploy
+    runs-on: ubuntu-latest
+    # Includes up to 10 minutes waiting for games in progress to finish.
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: make test
+
+      - name: Build linux binary
+        run: make build-linux
+
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      - name: Add server to known hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy
+        run: deploy/deploy.sh "${{ secrets.DEPLOY_USER }}@${{ secrets.DEPLOY_HOST }}"
+
+      - name: Verify
+        run: curl --fail --silent --show-error --retry 5 --retry-delay 3 https://ulartangga.erwarx.com/healthz

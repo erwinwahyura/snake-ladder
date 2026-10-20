@@ -23,13 +23,14 @@ Open two browser windows to play against yourself. A solo game works too, but it
 | `GOOGLE_CLIENT_ID` | | | turns on "Masuk dengan Google" (with the next two) |
 | `GOOGLE_CLIENT_SECRET` | | | |
 
-## Deploy (Hetzner + Caddy + Ansible)
+## Deploy (ulartangga.erwarx.com)
 
-1. Set your host in `deploy/ansible/inventory.ini` and the domain in `deploy/ansible/playbook.yml`.
-2. Make sure your main Caddyfile has `import sites/*`.
-3. Run `make deploy`. It builds a static linux/amd64 binary, installs the systemd unit and adds the Caddy site.
-   - If games are in progress it waits for them to finish, for up to 10 minutes (`drain_minutes`), before restarting.
-   - Players at a table see "Server sedang diperbarui…" during the restart.
+The server side (service user, systemd unit, `/etc/snake-ladder.env`, Caddy site, data in `/mnt/apps-data/snake-ladder`) is managed by the [homelab](https://github.com/erwinwahyura/homelab) repo's `snake_ladder` role. This repo only ships the binary.
+
+- **Automatic:** every push to `main` runs `.github/workflows/deploy.yml`: tests, builds a static linux/amd64 binary and runs `deploy/deploy.sh`. It needs the `DEPLOY_SSH_KEY`, `DEPLOY_HOST` and `DEPLOY_USER` secrets (the same ones homelab uses).
+- **Manual:** `make deploy` (override the host with `DEPLOY_TARGET=user@host`).
+- If games are in progress it waits for them to finish, for up to 10 minutes (`DRAIN_MINUTES`), before restarting.
+- Players at a table see "Server sedang diperbarui…" during the restart.
 
 ## Google sign-in (optional)
 
@@ -45,7 +46,7 @@ To turn it on:
 3. **Create the client.** Under **APIs & Services → Credentials → Create credentials → OAuth client ID**:
    - Type **Web application**.
    - **Authorized redirect URIs**: `https://ulartangga.erwarx.com/auth/google/callback`. For local testing, also add `http://localhost:8080/auth/google/callback`.
-4. **Configure the server.** Copy the client ID and secret into the playbook vars `google_client_id` / `google_client_secret`. Use ansible-vault, or `make deploy` with `-e`. The playbook writes them to `/etc/snake-ladder.env` (readable by the service only), with `PUBLIC_URL=https://<domain>`.
+4. **Configure the server.** In the homelab repo, set `snake_ladder_google_client_id` / `snake_ladder_google_client_secret` (keep them in `group_vars/vault.yml`) and run the playbook with `--tags snake_ladder`. The role writes them to `/etc/snake-ladder.env` (readable by the service only), with `PUBLIC_URL=https://<domain>`.
 
 To run it locally:
 

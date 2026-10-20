@@ -191,7 +191,7 @@ server ──303 /?login=CODE&nama=First──► page: POST /api/identity/claim
 ## Restarts and deploys
 
 - **Restart notice.** `Hub.Close()` (on SIGTERM) broadcasts `{"t":"server_restart"}` to every table before stopping it; queued messages are still written before the socket closes. The client shows "Server sedang diperbarui…" while it reconnects, and when the table turns out to be gone it explains why.
-- **Waiting for games.** `/healthz` → `playing` counts rooms whose `active` flag is set (a game running with someone connected), updated on every state broadcast. The Ansible playbook polls it every 10 s and restarts only at 0, or after `drain_minutes`.
+- **Waiting for games.** `/healthz` → `playing` counts rooms whose `active` flag is set (a game running with someone connected), updated on every state broadcast. `deploy/deploy.sh` polls it every 10 s and restarts only at 0, or after `DRAIN_MINUTES`.
 - **Service worker** (`web/sw.js`).
   - Precaches `offline.html`, `style.css`, the three font weights and one icon.
   - Navigation is network-first, falling back to `offline.html`. Other assets are network-first with a cache fallback. `/api/*` and `/ws*` are passed through untouched.
@@ -200,5 +200,5 @@ server ──303 /?login=CODE&nama=First──► page: POST /api/identity/claim
 
 - **Build.** `make build-linux` produces a static binary.
 - **Ship.** `make deploy` runs Ansible. It copies the binary, installs the systemd unit (sandboxed, state under `/var/lib/snake-ladder`), and drops a Caddy site block into `/etc/caddy/sites/`.
-- **Caddy prerequisite.** The main Caddyfile must contain `import sites/*`.
+- **Server setup.** Caddy site, systemd unit and env file live in the homelab repo (`snake_ladder` role); the server listens on 127.0.0.1:8091 because 8090 is taken by daily-kotoba.
 - **Config.** Environment variables `ADDR`, `DATA_DIR` and `ORIGINS`. `ORIGINS` is only needed if the page is served from a different host than `/ws`.

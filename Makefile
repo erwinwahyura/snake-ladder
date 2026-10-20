@@ -17,5 +17,8 @@ build:
 build-linux:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags '$(LDFLAGS)' -o $(BIN)-linux-amd64 ./cmd/server
 
+# Manual deploy; CI does the same on every push to main.
+DEPLOY_TARGET ?= deploy@46.224.127.221
+
 deploy: build-linux
-	ansible-playbook -i deploy/ansible/inventory.ini deploy/ansible/playbook.yml
+	deploy/deploy.sh $(DEPLOY_TARGET)
