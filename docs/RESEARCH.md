@@ -87,6 +87,14 @@ Without accounts, the friends list would be built from people you've played with
 
 **Recommendation:** WhatsApp sharing covers the common case today. Build "Teman main" with online dots and invites as its own loop. It also benefits from optional login, because a friends list tied to one browser is fragile.
 
+**Built in loop 8: optional Google sign-in.**
+- **Options weighed:** username + password, Google, passkeys, email OTP.
+- **Why Google:**
+  - It's one tap for almost every Indonesian Android user.
+  - Recovery is Google's job, so there are no forgotten passwords to handle.
+  - It costs nothing beyond a free OAuth client.
+- **Why still optional:** sign-in remains a link on top of the guest identity, never a gate, for the reasons above.
+
 **Built in loop 5:**
 - **No friend requests.** Sitting down to a game together *is* the friendship, which avoids a search and request surface that strangers could spam.
 - **Invites limited to friends**, and only while they have the app open.

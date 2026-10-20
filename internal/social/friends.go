@@ -128,19 +128,37 @@ func (f *Friends) Remove(id, fid string) error {
 	return f.save()
 }
 
-// Move renames a player everywhere after "Ganti kunci".
+// Move renames a player everywhere after "Ganti kunci", or merges a
+// guest into their account after signing in. Lists are merged, keeping the
+// most recent game with each friend, and nobody ends up their own friend.
 func (f *Friends) Move(from, to string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if from == to {
+		return nil
+	}
 	if list, ok := f.m[from]; ok {
-		f.m[to] = list
+		dst := f.m[to]
+		if dst == nil {
+			dst = map[string]*Friend{}
+			f.m[to] = dst
+		}
+		for id, fr := range list {
+			if old, ok := dst[id]; !ok || fr.LastPlayed.After(old.LastPlayed) {
+				dst[id] = fr
+			}
+		}
 		delete(f.m, from)
 	}
-	for _, list := range f.m {
+	for id, list := range f.m {
 		if fr, ok := list[from]; ok {
-			list[to] = fr
+			if old, ok := list[to]; !ok || fr.LastPlayed.After(old.LastPlayed) {
+				list[to] = fr
+			}
 			delete(list, from)
 		}
+		delete(list, id) // never your own friend
+		f.trim(list)
 	}
 	return f.save()
 }

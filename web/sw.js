@@ -3,7 +3,8 @@
 //
 // Everything is network-first, so a deploy is picked up on the next load
 // and old JavaScript never meets a new server. The cache is only a
-// fallback for being offline. Game sockets and the API are never touched.
+// fallback for being offline. Game sockets, the API and sign-in are never
+// touched.
 const CACHE = 'ut-shell-v1';
 const SHELL = [
   '/offline.html',
@@ -30,7 +31,7 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('fetch', (e) => {
   const req = e.request;
   const url = new URL(req.url);
-  if (req.method !== 'GET' || url.origin !== location.origin || url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws')) {
+  if (req.method !== 'GET' || url.origin !== location.origin || url.pathname.startsWith('/api/') || url.pathname.startsWith('/ws') || url.pathname.startsWith('/auth/')) {
     return;
   }
   if (req.mode === 'navigate') {

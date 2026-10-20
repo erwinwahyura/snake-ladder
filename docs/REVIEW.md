@@ -4,6 +4,48 @@ Each loop ends with an honest pass over the build. New loops go on top.
 
 ---
 
+## Loop 8 — 2026-10-20
+
+### What I checked
+- **Unit tests (`internal/auth`):**
+  - The auth URL carries the client, state, scopes and S256 challenge.
+  - The token request sends a PKCE verifier that hashes to the challenge, plus the secret.
+  - State is single-use and expires.
+  - Tokens are rejected for the wrong audience, wrong issuer, expired, or no subject.
+- **Server tests against a fake Google:**
+  - First sign-in keeps the guest identity.
+  - A second device gets the same identity, with its guest game merged in (games 2, points 13) and the old guest key retired.
+  - A callback without our cookie is refused.
+  - A second Google account gets its own identity.
+  - "Ganti kunci" keeps the link.
+  - With nothing configured, sign-in is off (404, `googleEnabled:false`).
+  - The accounts store survives a restart. Friend lists merge without self-friendship.
+- **Browser run against `scripts/fake_google.py`:**
+  1. Phone: "Masuk dengan Google" keeps the same identity, pre-fills the name "Sari", shows the status and leaves a clean URL.
+  2. Laptop: signing in to the same account gives the phone's identity.
+  3. "Keluar" gives a new guest.
+  4. No console errors.
+- **Ansible:** syntax check passes. The env file is written only when both secrets are set (`no_log`).
+
+### Good
+- **Sign-in is truly optional.** Nobody is stopped at a login screen; it just protects your record.
+- **Minimal data:** one Google ID per player. No email, no profile kept.
+- **No new dependencies, no third-party script in the page.** The OAuth flow is about 150 lines of stdlib Go.
+- **The usual OAuth mistakes are covered:** state tied to the browser, PKCE, the audience and issuer checks, and no tokens in URLs.
+
+### Not good yet
+- **It needs your Google Cloud setup** (README, "Google sign-in"). Until then the button stays hidden.
+- **The ID token's signature isn't checked.** That's allowed because it comes straight from Google's token endpoint over TLS in exchange for our secret (OpenID Connect Core §3.1.3.7). Verifying against Google's keys would add defence in depth if we ever accept tokens any other way.
+- **No "unlink Google" button.** Signing out on a device is there, but detaching the account entirely isn't. That's rarely needed; it could be added.
+- **The button is plain text** rather than Google's branded button. That's fine functionally; swap in the official asset if you prefer.
+- **The real Google flow is untested** until you create the OAuth client. The fake covers the protocol, not Google's own screens.
+
+### Next
+1. Create the OAuth client and deploy (`make deploy -e google_client_id=… -e google_client_secret=…`).
+2. Play-test on two phones, including signing in on both.
+
+---
+
 ## Loop 7 — 2026-10-20
 
 ### What I checked

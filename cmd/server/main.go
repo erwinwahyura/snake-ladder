@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/erwinwahyura/snake-ladder/internal/auth"
 	"github.com/erwinwahyura/snake-ladder/internal/identity"
 	"github.com/erwinwahyura/snake-ladder/internal/room"
 	"github.com/erwinwahyura/snake-ladder/internal/social"
@@ -51,13 +52,36 @@ func run(addr, dataDir string, origins []string) error {
 	if err != nil {
 		return err
 	}
+	accounts, err := identity.OpenAccounts(filepath.Join(dataDir, "accounts.json"))
+	if err != nil {
+		return err
+	}
+	// Google sign-in is offered only when all three are set.
+	publicURL := strings.TrimRight(os.Getenv("PUBLIC_URL"), "/")
+	google := auth.NewGoogle(os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET"), publicURL+"/auth/google/callback")
+	if publicURL == "" {
+		google = nil
+	}
+	if google != nil {
+		// Only for end-to-end tests against a stand-in for Google.
+		if u := os.Getenv("GOOGLE_AUTH_URL"); u != "" {
+			google.AuthURL = u
+		}
+		if u := os.Getenv("GOOGLE_TOKEN_URL"); u != "" {
+			google.TokenURL = u
+		}
+	}
+	slog.Info("google sign-in", "enabled", google != nil)
 	var hub *room.Hub
 	soc := social.NewService(friends, signer.Verify, func(code string) bool { return hub.Listed(code) })
 	hub = room.NewHub(room.Config{Recorder: store, Verify: signer.Verify, Social: soc})
 
 	srv := &http.Server{
-		Addr:              addr,
-		Handler:           routes(app{hub: hub, store: store, signer: signer, social: soc, transfers: identity.NewTransfers()}, origins),
+		Addr: addr,
+		Handler: routes(app{
+			hub: hub, store: store, signer: signer, social: soc, transfers: identity.NewTransfers(),
+			accounts: accounts, google: google, secureCookies: strings.HasPrefix(publicURL, "https://"),
+		}, origins),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
@@ -92,6 +116,10 @@ type app struct {
 	social    *social.Service
 	transfers *identity.Transfers
 	claims    *limiter
+
+	accounts      *identity.Accounts
+	google        *auth.Google // nil: sign-in not configured
+	secureCookies bool
 }
 
 func routes(a app, origins []string) http.Handler {
@@ -103,7 +131,11 @@ func routes(a app, origins []string) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /ws", hub.Handler(origins))
 	mux.Handle("GET /ws/presence", a.social.Handler(origins))
+	if a.accounts == nil {
+		a.accounts, _ = identity.OpenAccounts("")
+	}
 	a.identityRoutes(mux)
+	a.authRoutes(mux)
 	a.socialRoutes(mux)
 	mux.HandleFunc("GET /api/leaderboard", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
@@ -121,10 +153,12 @@ func routes(a app, origins []string) http.Handler {
 	mux.HandleFunc("GET /api/identity", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")
 		pid := r.URL.Query().Get("pid")
-		if _, ok := signer.Verify(pid); !ok {
+		id, ok := signer.Verify(pid)
+		if !ok {
 			pid = signer.Issue()
+			id, _ = signer.Verify(pid)
 		}
-		writeJSON(w, map[string]any{"pid": pid})
+		writeJSON(w, map[string]any{"pid": pid, "google": a.accounts.Linked(id), "googleEnabled": a.google != nil})
 	})
 	mux.HandleFunc("GET /api/rooms", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-store")

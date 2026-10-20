@@ -24,6 +24,12 @@
       <span>Nama kamu</span>
       <input id="name" maxlength="16" autocomplete="nickname" placeholder="Misal: Budi" required>
     </label>
+    <div id="account-line" class="account-line" hidden>
+      <button id="google-in" class="btn small" type="button">Masuk dengan Google</button>
+      <span id="google-hint" class="muted">Opsional, supaya poin dan teman mainmu ikut ke HP mana pun.</span>
+      <span id="google-status" class="muted" hidden>Sudah masuk dengan Google. Poin dan teman mainmu aman di semua perangkat.</span>
+      <button id="google-out" class="link small" type="button" hidden>Keluar</button>
+    </div>
     <div class="lobby-actions">
       <button id="quick-match" class="btn primary quick">Cari lawan</button>
       <button id="create" class="btn">Buat meja</button>
@@ -37,6 +43,7 @@
       <button class="btn">Gabung</button>
     </form>
     <p id="lobby-error" class="error" role="alert" hidden></p>
+    <p id="lobby-note" class="note" role="status" hidden></p>
     <section class="open-tables" aria-labelledby="open-title">
       <div class="open-head">
         <h2 id="open-title">Meja terbuka</h2>
@@ -150,7 +157,7 @@
     <p id="my-bot-record" class="muted" hidden></p>
     <details class="transfer">
       <summary>Pindah ke HP atau browser lain</summary>
-      <p class="muted">Catatan dan teman mainmu tersimpan di browser ini tanpa akun. Buat kode di perangkat lama, lalu masukkan di perangkat baru. Kode berlaku 10 menit dan hanya sekali pakai.</p>
+      <p class="muted">Paling mudah: <b>Masuk dengan Google</b> di lobby, lalu masuk dengan akun yang sama di perangkat lain. Tanpa Google, buat kode di perangkat lama lalu masukkan di perangkat baru. Kode berlaku 10 menit dan hanya sekali pakai.</p>
       <div class="transfer-row">
         <button id="make-code" class="btn small" type="button">Buat kode pindah</button>
         <b id="my-code" class="code" hidden></b>
